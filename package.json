@@ -36,7 +36,7 @@
     "bin/run-cso.sh"
   ],
   "engines": {
-    "node": "24.x"
+    "node": "22.x || 24.x"
   },
   "keywords": [
     "security",

@@ -10,7 +10,7 @@ MyOS Guard Dog checks software packages before installation and rechecks your pr
 
 Use the [installation prompt](GUARD_DOG_PROMPT.md). It guides your assistant through setup, a first audit, VirusTotal verification, scheduling, repairs, and a completion report.
 
-For a terminal installation on macOS, Windows, or Linux, use Node 24 LTS. Other major versions are rejected so local installs, CI and support all exercise the same runtime:
+For a terminal installation on macOS, Windows, or Linux, use Node 22 or Node 24 LTS. Other major versions are rejected so local installs, CI and support all exercise the same runtime:
 
 ```sh
 npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v4.0.3
