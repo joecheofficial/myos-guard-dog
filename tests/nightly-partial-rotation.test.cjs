@@ -37,3 +37,32 @@ test('partialNightlyOk: quota stop is deferred (exit 0), excludes are skipped, n
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('partialNightlyOk: incomplete-only manifests are coverage notes, but an all-incomplete night still fails', async () => {
+  const { runNightly } = await import('../bin/nightly-scan.js');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'guardog-partial-inc-'));
+  const previous = process.env.GUARDOG_HOME;
+  process.env.GUARDOG_HOME = path.join(root, 'state');
+  fs.mkdirSync(process.env.GUARDOG_HOME);
+  const config = { nightlyUpdates: false, scanRoots: [root], partialNightlyOk: true };
+  fs.writeFileSync(path.join(process.env.GUARDOG_HOME, 'config.json'), JSON.stringify(config));
+  for (const name of ['a', 'b']) {
+    fs.mkdirSync(path.join(root, name));
+    fs.writeFileSync(path.join(root, name, 'package.json'), '{}');
+  }
+  const health = { platform: 'linux', run: () => ({ status: 0, stdout: '' }) };
+  const ok = { status: 0, stdout: JSON.stringify({ status: 'complete', dependencyCount: 2, dangerousCount: 0, issues: [] }) };
+  const stale = { status: 2, stdout: JSON.stringify({ status: 'incomplete', dependencyCount: 1, dangerousCount: 0, issues: ['x@1.0.0: scan coverage incomplete'] }) };
+  try {
+    let receipt = runNightly({ config, roots: [root], healthOptions: health, run: (_, args) => (args[1].includes('/a/') ? ok : stale) });
+    assert.deepEqual(receipt.issues, []);
+    assert.equal(receipt.exitCode, 0);
+    assert.equal(receipt.coverage.incompleteManifests, 1);
+    fs.rmSync(path.join(process.env.GUARDOG_HOME, 'data', 'nightly-cursor.json'), { force: true });
+    receipt = runNightly({ config, roots: [root], healthOptions: health, run: () => stale });
+    assert.equal(receipt.exitCode, 2, 'nothing scanned completely is a failed night');
+  } finally {
+    if (previous === undefined) delete process.env.GUARDOG_HOME; else process.env.GUARDOG_HOME = previous;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

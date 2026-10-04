@@ -68,6 +68,8 @@ function performNightly(options) {
   // next manifests tomorrow and records the deferral instead of failing every night.
   const partialOk = config.partialNightlyOk === true;
   const deferred = [];
+  const incompleteOnly = [];
+  let completeManifests = 0;
   const maxDepth = Number(process.env.GUARDOG_MAX_DEPTH || 4);
   const homeIdentity = realPathOrNull(options.homeDirectory || homedir());
   function discover(dir, depth = 0) {
@@ -153,6 +155,15 @@ function performNightly(options) {
         deferred.push(...ordered.slice(index));
         break;
       }
+      // partialNightlyOk: a manifest whose only problem is incomplete lookups (stale or missing
+      // VirusTotal report, registry timeout) is a coverage note, not a failed night. Danger still
+      // exits 1, and if no manifest at all scanned complete the night is still incomplete.
+      if (partialOk && summary.status === 'incomplete' && result.status === expectedExit && !summary.dangerousCount && issueTexts.length > 0) {
+        receipt.coverage.incompleteManifests = (receipt.coverage.incompleteManifests || 0) + 1;
+        incompleteOnly.push(manifest);
+        lastDone = manifest;
+        continue;
+      }
       const coverageOnly = summary.status === 'incomplete' && result.status === expectedExit && !summary.dangerousCount && issueTexts.length > 0 && issueTexts.every((text) => COVERAGE_GAP.test(text));
       if (coverageOnly) {
         receipt.coverage.projectsWithoutInventory += 1;
@@ -162,11 +173,15 @@ function performNightly(options) {
         for (const text of issueTexts) receipt.issues.push(manifest + ': ' + text);
       }
       lastDone = manifest;
+      if (summary.status === 'complete' || summary.status === 'dangerous') completeManifests++;
       if (summary.quotaExhausted === true) {
         receipt.issues.push('VirusTotal daily quota exhausted. Stopped remaining project scans to preserve the next UTC-day allowance.');
         break;
       }
     } catch { receipt.issues.push('Scan failed for ' + manifest + ': ' + (result.error?.message || result.stderr || 'missing scan summary')); }
+  }
+  if (partialOk && incompleteOnly.length && completeManifests === 0) {
+    receipt.issues.push('No manifest scanned completely this run (' + incompleteOnly.length + ' incomplete); treating as a failed night.');
   }
   if (partialOk) {
     // Resume after the last finished manifest; a full pass wraps back to the start.
