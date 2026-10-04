@@ -61,6 +61,13 @@ function performNightly(options) {
   const receipt = { taskClass: 'security_scan', startedAt: new Date().toISOString(), status: 'incomplete', roots, projectsScanned: 0, dependencyCount: 0, dangerousCount: 0, preflight, issues: preflight.issues.map(issue => 'Health: ' + issue), boundaries: { depthLimited: 0, unreadable: 0, samples: [] }, coverage: { projectsWithoutInventory: 0, samples: [] } };
   const manifests = new Set();
   const visited = new Set();
+  // Opt-in (config.scanExcludes): path fragments to skip, for vendored or scratch trees.
+  const excludes = Array.isArray(config.scanExcludes) ? config.scanExcludes.filter(item => typeof item === 'string' && item) : [];
+  // Opt-in (config.partialNightlyOk): VirusTotal pacing (4 lookups/min) cannot cover a
+  // large workspace in one budget. Stopping on budget or quota then rotates to the
+  // next manifests tomorrow and records the deferral instead of failing every night.
+  const partialOk = config.partialNightlyOk === true;
+  const deferred = [];
   const maxDepth = Number(process.env.GUARDOG_MAX_DEPTH || 4);
   const homeIdentity = realPathOrNull(options.homeDirectory || homedir());
   function discover(dir, depth = 0) {
@@ -77,6 +84,7 @@ function performNightly(options) {
         const full = join(dir, entry.name);
         if (!entry.isDirectory()) { if (entry.isFile() && entry.name === 'package.json') manifests.add(full); continue; }
         if (skipDirs.has(entry.name) || entry.name.startsWith('.')) continue;
+        if (excludes.some(fragment => full.includes(fragment))) continue;
         // ~/Library is app data (caches, containers, mail), not code. Walking it
         // costs minutes and trips macOS privacy guards (EPERM) on every run.
         if (atHome && homeOnlySkipDirs.has(entry.name)) continue;
@@ -103,13 +111,27 @@ function performNightly(options) {
   // consume the whole nightly budget. Cap each manifest so a slow or stuck
   // project is skipped with a logged issue and the rest still get scanned.
   const manifestTimeoutMs = Number(options.manifestTimeoutMs ?? process.env.GUARDOG_MANIFEST_TIMEOUT_MS ?? 900000);
-  for (const manifest of manifests) {
+  const cursorPath = join(guardogHome(), 'data', 'nightly-cursor.json');
+  let ordered = [...manifests].sort();
+  if (partialOk) {
+    try {
+      const { last } = JSON.parse(readFileSync(cursorPath, 'utf8'));
+      const start = ordered.findIndex(item => item > last);
+      if (start > 0) ordered = ordered.slice(start).concat(ordered.slice(0, start));
+    } catch { /* no cursor yet: start at the beginning */ }
+  }
+  let lastDone = null;
+  for (const [index, manifest] of ordered.entries()) {
     const remaining = deadline - Date.now();
-    if (remaining <= 0) { receipt.issues.push('Nightly scan time budget exhausted.'); break; }
+    if (remaining <= 0) {
+      if (partialOk) { deferred.push(...ordered.slice(index)); } else receipt.issues.push('Nightly scan time budget exhausted.');
+      break;
+    }
     const timeout = Number.isFinite(manifestTimeoutMs) && manifestTimeoutMs > 0 ? Math.min(remaining, manifestTimeoutMs) : remaining;
     const result = run(process.execPath, [join(packageRoot(), 'bin', 'scan-deps.js'), manifest, '--json'], { encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024, windowsHide: true });
     receipt.projectsScanned++;
     if (result.error?.code === 'ETIMEDOUT' || (result.status === null && result.signal)) {
+      if (partialOk) { deferred.push(manifest); lastDone = manifest; continue; }
       receipt.issues.push('Scan timed out after ' + timeout + 'ms and was skipped: ' + manifest);
       continue;
     }
@@ -124,6 +146,13 @@ function performNightly(options) {
       // A project with no lockfile or installed inventory (a scratch folder, a
       // checkout never installed) is a coverage gap, not a failed night. Record
       // it under coverage and keep the receipt complete.
+      if (partialOk && summary.quotaExhausted === true) {
+        receipt.dependencyCount -= summary.dependencyCount;
+        receipt.dangerousCount -= Number(summary.dangerousCount) || 0;
+        if (summary.status === 'dangerous' && !summary.dangerousCount) receipt.dangerousCount--;
+        deferred.push(...ordered.slice(index));
+        break;
+      }
       const coverageOnly = summary.status === 'incomplete' && result.status === expectedExit && !summary.dangerousCount && issueTexts.length > 0 && issueTexts.every((text) => COVERAGE_GAP.test(text));
       if (coverageOnly) {
         receipt.coverage.projectsWithoutInventory += 1;
@@ -132,16 +161,22 @@ function performNightly(options) {
         if (summary.status === 'incomplete' || result.status !== expectedExit) receipt.issues.push('Incomplete or inconsistent scan: ' + manifest);
         for (const text of issueTexts) receipt.issues.push(manifest + ': ' + text);
       }
+      lastDone = manifest;
       if (summary.quotaExhausted === true) {
         receipt.issues.push('VirusTotal daily quota exhausted. Stopped remaining project scans to preserve the next UTC-day allowance.');
         break;
       }
     } catch { receipt.issues.push('Scan failed for ' + manifest + ': ' + (result.error?.message || result.stderr || 'missing scan summary')); }
   }
-  if (receipt.dependencyCount === 0) receipt.issues.push('No installed dependencies were scanned.');
-  receipt.status = receipt.issues.length ? 'incomplete' : receipt.dangerousCount > 0 ? 'dangerous' : 'complete';
+  if (partialOk) {
+    // Resume after the last finished manifest; a full pass wraps back to the start.
+    try { writeFileSync(cursorPath, JSON.stringify({ last: deferred.length ? lastDone : null, updatedAt: new Date().toISOString() }), { mode: 0o600 }); } catch { /* cursor is best effort */ }
+    if (deferred.length) receipt.coverage.deferredManifests = deferred.length;
+  }
+  if (receipt.dependencyCount === 0 && !(partialOk && deferred.length)) receipt.issues.push('No installed dependencies were scanned.');
+  receipt.status = receipt.issues.length ? 'incomplete' : receipt.dangerousCount > 0 ? 'dangerous' : deferred.length ? 'partial' : 'complete';
   receipt.finishedAt = new Date().toISOString();
-  receipt.exitCode = receipt.status === 'incomplete' ? 2 : receipt.status === 'dangerous' ? 1 : 0;
+  receipt.exitCode = receipt.status === 'incomplete' ? 2 : receipt.status === 'dangerous' ? 1 : 0; // 'partial' (opt-in) exits 0
   const receiptPath = join(guardogHome(), 'data', 'last-nightly.json');
   const temporary = receiptPath + '.' + process.pid + '.tmp';
   writeFileSync(temporary, JSON.stringify(receipt, null, 2), { mode: 0o600 });
