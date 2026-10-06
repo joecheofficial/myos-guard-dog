@@ -66,3 +66,28 @@ test('partialNightlyOk: incomplete-only manifests are coverage notes, but an all
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('partialNightlyOk: a quota stop on a manifest that found danger keeps the danger and is not deferred', async () => {
+  const { runNightly } = await import('../bin/nightly-scan.js');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'guardog-partial-danger-'));
+  const previous = process.env.GUARDOG_HOME;
+  process.env.GUARDOG_HOME = path.join(root, 'state');
+  fs.mkdirSync(process.env.GUARDOG_HOME);
+  const config = { nightlyUpdates: false, scanRoots: [root], partialNightlyOk: true };
+  for (const name of ['a', 'b']) {
+    fs.mkdirSync(path.join(root, name));
+    fs.writeFileSync(path.join(root, name, 'package.json'), '{}');
+  }
+  fs.writeFileSync(path.join(process.env.GUARDOG_HOME, 'config.json'), JSON.stringify(config));
+  const health = { platform: 'linux', run: () => ({ status: 0, stdout: '' }) };
+  const dangerQuota = { status: 1, stdout: JSON.stringify({ status: 'dangerous', dependencyCount: 3, dangerousCount: 1, quotaExhausted: true, issues: [] }) };
+  try {
+    const receipt = runNightly({ config, roots: [root], healthOptions: health, run: () => dangerQuota });
+    assert.equal(receipt.dangerousCount, 1, 'found danger is never discarded by a quota deferral');
+    assert.notEqual(receipt.status, 'partial');
+    assert.notEqual(receipt.exitCode, 0);
+  } finally {
+    if (previous === undefined) delete process.env.GUARDOG_HOME; else process.env.GUARDOG_HOME = previous;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
