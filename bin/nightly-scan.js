@@ -148,10 +148,10 @@ function performNightly(options) {
       // A project with no lockfile or installed inventory (a scratch folder, a
       // checkout never installed) is a coverage gap, not a failed night. Record
       // it under coverage and keep the receipt complete.
-      if (partialOk && summary.quotaExhausted === true) {
+      // A manifest that already found danger is never deferred: its findings count tonight.
+      const foundDanger = summary.status === 'dangerous' || (Number(summary.dangerousCount) || 0) > 0;
+      if (partialOk && summary.quotaExhausted === true && !foundDanger) {
         receipt.dependencyCount -= summary.dependencyCount;
-        receipt.dangerousCount -= Number(summary.dangerousCount) || 0;
-        if (summary.status === 'dangerous' && !summary.dangerousCount) receipt.dangerousCount--;
         deferred.push(...ordered.slice(index));
         break;
       }
