@@ -48,11 +48,14 @@ test('findings have safe paths and generic messages with no raw signature or std
   assert.ok(!JSON.stringify(result).includes(secret));
 }));
 
-test('missing, relative, in-target, non-executable and symlinked-to-target engines never run', () => fixture(async ({ root, base, scanWithClamAV }) => {
+test('missing, relative, in-target, POSIX non-executable and symlinked-to-target engines never run', () => fixture(async ({ root, base, scanWithClamAV }) => {
   const targetExe = path.join(root, 'engine'); fs.writeFileSync(targetExe, 'untrusted'); fs.chmodSync(targetExe, 0o700);
   const plain = path.join(base, 'plain'); fs.writeFileSync(plain, 'plain'); fs.chmodSync(plain, 0o600);
   const link = path.join(base, 'link'); fs.symlinkSync(targetExe, link);
-  for (const executable of [undefined, 'clamscan', path.join(base, 'missing'), targetExe, plain, link]) {
+  // Node X_OK is equivalent to F_OK on Windows; chmod cannot model execution denial there.
+  const invalid = [undefined, 'clamscan', path.join(base, 'missing'), targetExe, link];
+  if (process.platform !== 'win32') invalid.push(plain);
+  for (const executable of invalid) {
     let ran = false;
     const result = scanWithClamAV({ root, executable, now: NOW, run() { ran = true; throw new Error('must not execute'); } });
     assert.equal(result.status, 'incomplete'); assert.equal(ran, false);
@@ -171,4 +174,14 @@ test('special files are counted without opening their contents', { skip: process
     const result = scanWithClamAV(opts(root, runner()));
     assert.equal(result.status, 'incomplete'); assert.equal(result.coverage.specialFilesSkipped, 1);
   } finally { await new Promise(resolve => server.close(resolve)); }
+}));
+
+// Exercises actual spawn failure, including Windows where chmod has no execute-bit semantics.
+test('an actual non-program engine fails closed on every platform', () => fixture(async ({ root, base, scanWithClamAV }) => {
+  const executable = path.join(base, 'not-a-program.txt');
+  fs.writeFileSync(executable, 'This is inert fixture data, not an executable.');
+  const result = scanWithClamAV({ root, executable, now: NOW, timeoutMs: 1000 });
+  assert.equal(result.status, 'incomplete');
+  assert.deepEqual(result.findings, []);
+  assert.ok(result.issues.length > 0);
 }));

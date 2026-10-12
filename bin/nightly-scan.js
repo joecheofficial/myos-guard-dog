@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, readdirSync, realpathSync, statSync, writeFileSync, renameSync, readFileSync, openSync, closeSync, unlinkSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -114,7 +114,7 @@ function performNightly(options) {
         const full = join(dir, entry.name);
         if (!entry.isDirectory()) { if (entry.isFile() && entry.name === 'package.json') manifests.add(full); continue; }
         if (skipDirs.has(entry.name) || entry.name.startsWith('.')) continue;
-        if (excludes.some(fragment => full.includes(fragment))) continue;
+        if (excludes.some(fragment => full.split(sep).join('/').includes(fragment.split(sep).join('/')))) continue;
         // ~/Library is app data (caches, containers, mail), not code. Walking it
         // costs minutes and trips macOS privacy guards (EPERM) on every run.
         if (atHome && homeOnlySkipDirs.has(entry.name)) continue;
