@@ -1,4 +1,4 @@
-# MyOS Guard Dog 5.0 release candidate
+# MyOS Guard Dog 5.0
 
 VirusTotal requests are paced within each process, including retries and refreshes.
 Separate processes or other software sharing the same API key can still exhaust its
@@ -6,9 +6,9 @@ quota. Rate limits leave coverage incomplete; they never turn into a clean resul
 
 MyOS Guard Dog checks software packages before installation and rechecks your projects against current security information. Its only supported command is `myos-guard-dog`. It is not affiliated with DataDog GuardDog or other similarly named packages. The official source is [josephtandle/myos-guard-dog](https://github.com/josephtandle/myos-guard-dog).
 
-## Local workspace scanner, release candidate
+## Local workspace scanner
 
-This candidate adds `myos-guard-dog workspace "/your/project" --json` for local files. It checks 28 native patterns across secrets, source code, CI, containers, TLS and coding-agent configuration. Rules carry severity, confidence and a concrete next action. They are text heuristics, not full semantic analysis.
+The workspace scanner adds `myos-guard-dog workspace "/your/project" --json` for local files. It checks 28 native patterns across secrets, source code, CI, containers, TLS and coding-agent configuration. Rules carry severity, confidence and a concrete next action. They are text heuristics, not full semantic analysis.
 
 ```sh
 myos-guard-dog workspace "/your/project"
@@ -27,7 +27,7 @@ JSON and SARIF contain locations, fingerprints and remediation, never matching c
 
 ClamAV is optional and must already be installed from a trusted source. Supply its absolute executable path outside the scanned tree. GuardDog does not install the engine, download signatures, quarantine files or delete findings. The adapter checks database age and reports stale, missing, failed or bounded coverage as incomplete. ClamAV and its databases retain their separate licenses. `--files` nightly scanning runs native checks before package audits; it does not enable ClamAV automatically.
 
-This candidate has not yet passed the live-engine and All Sorted release gates. See `WORKSPACE-SECURITY.md` for supported coverage and release requirements. The stable install command below remains pinned to the previous release until this candidate is published.
+The native scanner passed Node 22/24 CI on macOS, Windows and Linux. The optional ClamAV adapter passed ten live probes on Linux with ClamAV 1.5.4; live macOS and Windows ClamAV validation is not claimed. See `WORKSPACE-SECURITY.md` for evidence, supported coverage and distribution requirements. All Sorted uses its own module release and installed-runtime verification.
 
 ## Install with your AI assistant
 
@@ -36,7 +36,7 @@ Use the [installation prompt](GUARD_DOG_PROMPT.md). It guides your assistant thr
 For a terminal installation on macOS, Windows, or Linux, use Node 22 or Node 24 LTS. Other major versions are rejected so local installs, CI and support all exercise the same runtime:
 
 ```sh
-npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v4.1.0
+npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.0.0
 myos-guard-dog setup
 myos-guard-dog test
 myos-guard-dog scan "/your/project"
@@ -47,7 +47,7 @@ On Windows, substitute a quoted Windows folder such as `"C:\Users\You\Projects"`
 
 State lives in `~/.guardog` or `%USERPROFILE%\.guardog`, independently of the installation directory. `GUARDOG_HOME` selects another state folder. Upgrades preserve this state.
 
-Use the v4.1.0 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
+Use the v5.0.0 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
 
 ## A keyless first check
 
