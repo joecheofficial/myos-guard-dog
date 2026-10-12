@@ -22,3 +22,7 @@ default branch first, then ship from the latest tagged version.
 
 Do not include API keys, tokens, `.env` files, scan cache contents, or runtime
 logs in vulnerability reports unless they have been redacted.
+
+## Artifact Inspection Limits
+
+The `artifact` command parses npm tarball bytes in memory and never extracts or executes package files. It caps compressed and expanded size, archive entries, and source text inspected. It reports selected static indicators and lifecycle scripts. A result with no indicators is not a malware clearance; dynamic behavior, encoded variants, binaries, and source beyond the limits are outside this check. Guarded installs still require their existing completed checks, including a fresh VirusTotal file report.

@@ -58,7 +58,7 @@ function performNightly(options) {
   } catch (error) {
     preflight = { checkedAt: new Date().toISOString(), ok: false, repairs: [], issues: ['Health preflight failed: ' + error.message] };
   }
-  const receipt = { taskClass: 'security_scan', startedAt: new Date().toISOString(), status: 'incomplete', roots, projectsScanned: 0, dependencyCount: 0, dangerousCount: 0, preflight, issues: preflight.issues.map(issue => 'Health: ' + issue), boundaries: { depthLimited: 0, unreadable: 0, samples: [] }, coverage: { projectsWithoutInventory: 0, samples: [] } };
+  const receipt = { taskClass: 'security_scan', startedAt: new Date().toISOString(), status: 'incomplete', roots, projectsScanned: 0, dependencyCount: 0, dangerousCount: 0, suspiciousCount: 0, preflight, issues: preflight.issues.map(issue => 'Health: ' + issue), boundaries: { depthLimited: 0, unreadable: 0, samples: [] }, coverage: { projectsWithoutInventory: 0, samples: [] } };
   const manifests = new Set();
   const visited = new Set();
   // Opt-in (config.scanExcludes): path fragments to skip, for vendored or scratch trees.
@@ -139,11 +139,13 @@ function performNightly(options) {
     }
     try {
       const summary = JSON.parse(result.stdout);
-      if (!Number.isInteger(summary.dependencyCount) || summary.dependencyCount < 0 || !['complete', 'dangerous', 'incomplete'].includes(summary.status)) throw new Error('invalid scan summary');
+      if (!Number.isInteger(summary.dependencyCount) || summary.dependencyCount < 0 || !['complete', 'dangerous', 'suspicious', 'incomplete'].includes(summary.status)) throw new Error('invalid scan summary');
       receipt.dependencyCount += summary.dependencyCount;
       receipt.dangerousCount += Number(summary.dangerousCount) || 0;
+      receipt.suspiciousCount += Number(summary.suspiciousCount) || 0;
       if (summary.status === 'dangerous' && !summary.dangerousCount) receipt.dangerousCount++;
-      const expectedExit = { complete: 0, dangerous: 1, incomplete: 2 }[summary.status];
+      if (summary.status === 'suspicious' && !summary.suspiciousCount) receipt.suspiciousCount++;
+      const expectedExit = { complete: 0, dangerous: 1, suspicious: 2, incomplete: 2 }[summary.status];
       const issueTexts = (summary.issues || []).map((issue) => (typeof issue === 'string' ? issue : JSON.stringify(issue)));
       // A project with no lockfile or installed inventory (a scratch folder, a
       // checkout never installed) is a coverage gap, not a failed night. Record
@@ -189,9 +191,9 @@ function performNightly(options) {
     if (deferred.length) receipt.coverage.deferredManifests = deferred.length;
   }
   if (receipt.dependencyCount === 0 && !(partialOk && deferred.length)) receipt.issues.push('No installed dependencies were scanned.');
-  receipt.status = receipt.issues.length ? 'incomplete' : receipt.dangerousCount > 0 ? 'dangerous' : deferred.length ? 'partial' : 'complete';
+  receipt.status = receipt.issues.length ? 'incomplete' : receipt.dangerousCount > 0 ? 'dangerous' : receipt.suspiciousCount > 0 ? 'suspicious' : deferred.length ? 'partial' : 'complete';
   receipt.finishedAt = new Date().toISOString();
-  receipt.exitCode = receipt.status === 'incomplete' ? 2 : receipt.status === 'dangerous' ? 1 : 0; // 'partial' (opt-in) exits 0
+  receipt.exitCode = receipt.status === 'incomplete' || receipt.status === 'suspicious' ? 2 : receipt.status === 'dangerous' ? 1 : 0; // 'partial' (opt-in) exits 0
   const receiptPath = join(guardogHome(), 'data', 'last-nightly.json');
   const temporary = receiptPath + '.' + process.pid + '.tmp';
   writeFileSync(temporary, JSON.stringify(receipt, null, 2), { mode: 0o600 });

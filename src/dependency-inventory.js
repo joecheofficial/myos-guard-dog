@@ -3,6 +3,13 @@ import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 
 const exactVersion = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const packageName = /^(?:@[a-z0-9_.-]+\/)?[a-z0-9_.-]+$/i;
+const nonRegistrySpec = /^(?:git(?:\+[^:]+)?:|github:|file:|link:|workspace:|https?:)/i;
+const registryOrigin = resolved => {
+  try {
+    const url = new URL(resolved);
+    return url.protocol === 'https:' && url.hostname === 'registry.npmjs.org' && !url.port && !url.username && !url.password;
+  } catch { return false; }
+};
 
 /** Collect exact npm identities; never turn an unresolved audit into a latest check. */
 export function collectDependencies(manifestPath) {
@@ -34,6 +41,9 @@ export function collectDependencies(manifestPath) {
     return { packages: [], issues: [error.message], complete: false };
   }
   const direct = { ...manifest.dependencies, ...manifest.devDependencies, ...manifest.optionalDependencies };
+  for (const [name, spec] of Object.entries(direct)) {
+    if (typeof spec === 'string' && nonRegistrySpec.test(spec)) issues.push(`Non-registry direct dependency cannot be audited as a registry package: ${name}`);
+  }
   const lockName = ['npm-shrinkwrap.json', 'package-lock.json'].find(name => existsSync(join(root, name)));
   const lockedLocations = new Set();
   const useEntry = (location, entry, inferredName) => {
@@ -45,9 +55,16 @@ export function collectDependencies(manifestPath) {
         issues.push(`Linked or local dependency cannot be audited as a registry package: ${location}`);
         return;
       }
+      if (entry.inBundle || entry.bundled || !registryOrigin(entry.resolved)) {
+        issues.push(`Non-registry or unproven dependency origin: ${location}`);
+        return;
+      }
       const metadataPath = `${location}/package.json`;
       if (existsSync(join(root, metadataPath))) {
         const installed = read(metadataPath);
+        if (installed.name !== (entry.name || inferredName) || installed.version !== entry.version) {
+          issues.push(`Installed identity differs from ${lockName}: ${location}`);
+        }
         add(installed.name, installed.version, 'installed', location);
       } else {
         add(entry.name || inferredName, entry.version, lockName, location);
@@ -91,7 +108,10 @@ export function collectDependencies(manifestPath) {
         if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
         try {
           const metadata = read(`${child}/package.json`);
-          if (!lockedLocations.has(child)) add(metadata.name, metadata.version, 'installed', child);
+          if (!lockedLocations.has(child)) {
+            issues.push(`Installed dependency has no proven registry lock origin: ${child}`);
+            add(metadata.name, metadata.version, 'installed', child);
+          }
           walkInstalled(`${child}/node_modules`);
         } catch (error) { issues.push(`Cannot inspect ${child}: ${error.message}`); }
       }

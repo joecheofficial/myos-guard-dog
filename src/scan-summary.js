@@ -1,5 +1,6 @@
 export function summarizeDependencyScan(inventory, results) {
   const dangerousCount = results.filter(result => result.decision?.action === 'BARK').length;
+  const suspiciousCount = results.filter(result => result.decision?.action === 'WHINE' || (result.decision?.action === 'SILENT' && result.decision?.coverage === 'complete' && result.decision?.threat !== 'SAFE')).length;
   const issues = [...inventory.issues];
   let incompleteCount = 0;
   results.forEach((result, index) => {
@@ -27,12 +28,19 @@ export function summarizeDependencyScan(inventory, results) {
   const incomplete = !inventory.complete || incompleteCount > 0 || issues.length > 0;
   const quotaExhausted = results.some(result => result.scanResults?.status === 'rate_limited');
   return {
-    status: dangerousCount ? 'dangerous' : incomplete ? 'incomplete' : 'complete',
+    status: dangerousCount ? 'dangerous' : incomplete ? 'incomplete' : suspiciousCount ? 'suspicious' : 'complete',
     coverage: incomplete ? 'incomplete' : 'complete',
     dependencyCount: inventory.packages.length,
     dangerousCount,
+    suspiciousCount,
     incompleteCount,
     quotaExhausted,
     issues
   };
+}
+
+export function auditExitCode(results) {
+  if (results.some(result => result.decision?.action === 'BARK')) return 1;
+  if (results.some(result => result.decision?.action !== 'SILENT' || result.decision?.threat !== 'SAFE' || result.decision?.coverage !== 'complete')) return 2;
+  return 0;
 }

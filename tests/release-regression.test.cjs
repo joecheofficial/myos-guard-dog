@@ -11,7 +11,7 @@ test('release metadata exposes only the canonical package and command names', ()
   assert.equal(manifest.name, 'myos-guard-dog');
   assert.deepEqual(Object.keys(manifest.bin).sort(), ['myos-guard-dog', 'myos-guard-dog-scan']);
   assert.equal(manifest.repository.url, 'git+https://github.com/josephtandle/myos-guard-dog.git');
-  assert.equal(manifest.engines.node, '24.x');
+  assert.equal(manifest.engines.node, '22.x || 24.x');
   assert.equal(fs.readFileSync(path.join(root, '.nvmrc'), 'utf8').trim(), '24');
   assert.equal(fs.readFileSync(path.join(root, '.node-version'), 'utf8').trim(), '24');
 });

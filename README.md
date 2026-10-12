@@ -1,4 +1,4 @@
-# MyOS Guard Dog 4.0
+# MyOS Guard Dog 4.1
 
 VirusTotal requests are paced within each process, including retries and refreshes.
 Separate processes or other software sharing the same API key can still exhaust its
@@ -13,7 +13,7 @@ Use the [installation prompt](GUARD_DOG_PROMPT.md). It guides your assistant thr
 For a terminal installation on macOS, Windows, or Linux, use Node 22 or Node 24 LTS. Other major versions are rejected so local installs, CI and support all exercise the same runtime:
 
 ```sh
-npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v4.0.3
+npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v4.1.0
 myos-guard-dog setup
 myos-guard-dog test
 myos-guard-dog scan "/your/project"
@@ -24,6 +24,18 @@ On Windows, substitute a quoted Windows folder such as `"C:\Users\You\Projects"`
 
 State lives in `~/.guardog` or `%USERPROFILE%\.guardog`, independently of the installation directory. `GUARDOG_HOME` selects another state folder. Upgrades preserve this state.
 
+Use the v4.1.0 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
+
+## A keyless first check
+
+```sh
+myos-guard-dog artifact npm:lodash@4.17.21
+myos-guard-dog artifact npm:lodash@4.17.21 --json
+myos-guard-dog artifact "/path/to/package.tgz"
+```
+
+The `npm:` form requires an exact version. It downloads the public npm archive, checks the registry hostname, release identity and strong registry digest, then reads archive bytes in memory. The local `.tgz` form inspects bytes without proving registry origin. Neither form extracts files, runs package scripts or requires an API key. It reports lifecycle scripts and selected source indicators, including a credential-file read plus outbound network capability in the same file. The inspection has limits on archive size, entry count and text scanned. A result with no indicators is **not** proof that a package is safe.
+
 ## Check before installing
 
 ```sh
@@ -31,7 +43,7 @@ myos-guard-dog install lodash
 myos-guard-dog install npm install express@5.1.0
 ```
 
-The guarded npm installer resolves the full dependency tree in temporary staging with scripts disabled. It checks exact versions and public npm artifact hashes, then requires completed security checks before installing the approved lockfile. Lifecycle scripts remain disabled after installation. Packages needing build scripts require a separate review.
+The guarded npm installer resolves the full dependency tree in temporary staging with scripts disabled. It verifies exact versions and public npm artifact hashes, runs bounded artifact inspection on those same bytes, then requires completed security checks before installing the approved lockfile. High-risk, review, or uninspectable archive findings stop the guarded install and identify the file and rule for manual review. Lifecycle scripts remain disabled after installation. Packages needing build scripts require a separate review.
 
 Direct npm or pip commands bypass Guard Dog. Guard Dog does not intercept all terminal activity. Unsupported guarded installations, including pip, custom registries, workspaces and local/Git sources, stop with an explanation. They are not silently passed through.
 
@@ -44,7 +56,7 @@ myos-guard-dog analyze node-ipc@10.1.1 npm
 myos-guard-dog analyze requests@2.32.3 pypi
 ```
 
-Project audits read exact npm lockfile or installed metadata versions, including transitive dependencies. npm lockfile versions 1, 2 and 3 and shrinkwrap files are supported. Installed metadata takes precedence where present. Results distinguish installed from locked versions. A missing or unsupported inventory is incomplete, never a request to check latest instead. Python and Ruby packages can be analyzed individually; automatic project inventory currently covers npm.
+Project audits read exact npm lockfile versions, including transitive dependencies, and compare installed identity when present. npm lockfile versions 1, 2 and 3 and shrinkwrap files are supported. Non-registry or unproven origins, installed-only packages, and mismatches between installed metadata and the lock make coverage incomplete. Python and Ruby packages can be analyzed individually; automatic project inventory currently covers npm.
 
 ## VirusTotal and coverage
 
@@ -61,7 +73,7 @@ Guarded installs require complete OSV and VirusTotal checks and no disqualifying
 | SILENT | The completed checks did not reach a warning threshold. Read coverage too. |
 | INCOMPLETE | Required evidence is missing. It is not a safe result. |
 
-Audit exit codes are 0 for completed coverage, 1 for serious findings, and 2 for incomplete coverage or operational failure. A completed audit can still contain warnings or lower-severity advisories. Guarded installation has the stricter approval policy.
+Audit exit codes are 0 only when completed checks report SAFE, 1 for serious findings, and 2 for suspicious or incomplete coverage or operational failure. Artifact inspection uses 0 for no indicators within its bounded scan, 1 for high-risk indicators, and 2 for review or incomplete inspection. A zero from artifact inspection alone does not certify package safety. Guarded installation has the stricter approval policy.
 
 ## Daily scans and self-repair
 
@@ -82,7 +94,7 @@ The computer must be available for its scheduler. Use `myos-guard-dog updates di
 
 ## Scope and verification
 
-Guard Dog protects the package workflow. It is not a replacement for operating-system antivirus and does not watch every file or process. Metadata pattern checks are not a full package-source review. No scan guarantees software is harmless.
+Guard Dog protects the package workflow. It is not a replacement for operating-system antivirus and does not watch every file or process. Regular `analyze` and `scan` pattern checks read registry description text; `artifact` and guarded `install` now additionally read bounded npm archive source bytes. This static inspection does not execute code, perform a sandboxed behavioral analysis, or cover every obfuscation technique. The CLI queries OSV, registry metadata, GitHub metadata when linked, and optional VirusTotal reports; it does not query NVD or CISA KEV or run name-similarity detection. SILENT describes only those completed checks. No scan guarantees software is harmless. For PyPI releases with multiple distributions, provide the SHA-256 of the exact wheel or source archive to check; without one, artifact coverage is incomplete.
 
 `npm test` runs regression and real packed-install tests. CI runs these on Windows, macOS and Linux with Node 24. Scheduler tests exercise platform command construction and readback without installing real tasks. `npm run test:live` separately exercises public services and may consume API quota. See the release verification record for actual platform results.
 

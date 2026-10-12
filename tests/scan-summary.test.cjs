@@ -1,5 +1,30 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
+const { resolve } = require('node:path');
+
+test('batch exit status distinguishes danger, incomplete checks and complete checks', async () => {
+  const { auditExitCode } = await import('../src/scan-summary.js');
+  assert.equal(auditExitCode([{ decision: { action: 'BARK', coverage: 'complete' } }]), 1);
+  assert.equal(auditExitCode([{ decision: { action: 'SILENT', coverage: 'incomplete' } }]), 2);
+  assert.equal(auditExitCode([{ decision: { action: 'WHINE', threat: 'SUSPICIOUS', coverage: 'complete' } }]), 2);
+  assert.equal(auditExitCode([{ decision: { action: 'SILENT', threat: 'SAFE', coverage: 'complete' } }]), 0);
+});
+
+test('project audit does not report suspicious packages as passed', async () => {
+  const { summarizeDependencyScan } = await import('../src/scan-summary.js');
+  const result = summarizeDependencyScan({ complete: true, issues: [], packages: [{ name: 'fixture', version: '1.0.0' }] }, [
+    { decision: { action: 'WHINE', threat: 'SUSPICIOUS', coverage: 'complete' }, cveResults: { status: 'complete' } }
+  ]);
+  assert.equal(result.status, 'suspicious');
+  assert.equal(result.coverage, 'complete');
+  assert.equal(result.suspiciousCount, 1);
+});
+
+test('unknown CLI commands exit nonzero', () => {
+  const result = spawnSync(process.execPath, [resolve(__dirname, '../src/index.js'), 'analyse', 'fixture'], { encoding: 'utf8' });
+  assert.equal(result.status, 2);
+});
 
 test('danger preserves incomplete coverage and package failure diagnostics', async () => {
   const { summarizeDependencyScan } = await import('../src/scan-summary.js');
@@ -31,7 +56,7 @@ test('completed dangerous evidence remains complete while inventory issues persi
   const { summarizeDependencyScan } = await import('../src/scan-summary.js');
   const inventory = {complete:true,issues:[],packages:[{name:'one',version:'1.0.0'}]};
   const results = [{decision:{action:'BARK',coverage:'complete'},cveResults:{status:'complete'}}];
-  assert.deepEqual(summarizeDependencyScan(inventory,results),{status:'dangerous',coverage:'complete',dependencyCount:1,dangerousCount:1,incompleteCount:0,quotaExhausted:false,issues:[]});
+  assert.deepEqual(summarizeDependencyScan(inventory,results),{status:'dangerous',coverage:'complete',dependencyCount:1,dangerousCount:1,suspiciousCount:0,incompleteCount:0,quotaExhausted:false,issues:[]});
   const incomplete = summarizeDependencyScan({...inventory,complete:false,issues:['unresolved local dependency']},results);
   assert.equal(incomplete.coverage,'incomplete');
   assert.equal(incomplete.status,'dangerous');

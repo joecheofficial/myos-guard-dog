@@ -32,7 +32,7 @@ export class DecisionTree {
       }
     };
 
-    const isTrusted = this.isTrustedProvider(packageName);
+    const isTrusted = this.isTrustedProvider(packageName, reputationData?.ecosystem || 'npm');
 
     if (isTrusted) {
       decision.notes.push('Trusted provider - reputation heuristics skipped');
@@ -61,7 +61,10 @@ export class DecisionTree {
     const incomplete = cveResults?.status !== 'complete'
       || !scanResults.success || !scanResults.found || scanResults.stale === true
       || !reputationData || Boolean(reputationData.error) || notFound
-      || reputationData.signals?.includes('GITHUB_CHECK_FAILED');
+      || reputationData.signals?.includes('GITHUB_CHECK_FAILED')
+      || reputationData.signals?.includes('REPOSITORY_UNCHECKED')
+      || reputationData.registry?.artifactCoverage === 'incomplete'
+      || patternResults?.failed === true;
     decision.coverage = incomplete ? 'incomplete' : 'complete';
     if (totalScore >= 100 || confirmedDanger) {
       decision.action = 'BARK';
@@ -85,7 +88,7 @@ export class DecisionTree {
       decision.notes.push('Protection is incomplete. Resolve missing checks with myos-guard-dog doctor --repair and myos-guard-dog test.');
       if (decision.action === 'SILENT') decision.threat = 'INCOMPLETE';
     }
-    decision.installAllowed = !incomplete && decision.action === 'SILENT'
+    decision.installAllowed = !incomplete && decision.action === 'SILENT' && decision.threat === 'SAFE'
       && !cveResults?.found && !(scanResults.maliciousVotes > 0) && !(scanResults.suspiciousVotes > 0);
 
     return decision;
@@ -96,7 +99,10 @@ export class DecisionTree {
    * @param {string} packageName - Package name
    * @returns {boolean} Is trusted
    */
-  isTrustedProvider(packageName) {
+  isTrustedProvider(packageName, ecosystem = 'npm') {
+    if (ecosystem === 'pypi') return (this.trusted.trustedScopes?.pypi || []).includes(packageName.toLowerCase());
+    if (ecosystem === 'rubygems') return (this.trusted.trustedScopes?.rubygems || []).includes(packageName.toLowerCase());
+    if (ecosystem !== 'npm') return false;
     // Check exact matches
     if (this.trusted.trustedProviders.includes(packageName)) {
       return true;
@@ -116,12 +122,6 @@ export class DecisionTree {
       if (npmScopes.includes(scope)) {
         return true;
       }
-    }
-
-    // Check rubygems trusted packages (exact name match against rubygems scope list)
-    const rubygemsTrusted = this.trusted.trustedScopes?.rubygems || [];
-    if (rubygemsTrusted.includes(packageName)) {
-      return true;
     }
 
     return false;
@@ -211,7 +211,7 @@ export class DecisionTree {
 
     if (signals.includes('NEWLY_PUBLISHED')) {
       score += 20;
-      reasons.push('🆕 Recently published (< 30 days)');
+      reasons.push('🆕 Package version recently published (< 30 days)');
     }
 
     if (signals.includes('NO_REPOSITORY')) {
@@ -222,6 +222,11 @@ export class DecisionTree {
     if (signals.includes('GITHUB_CHECK_FAILED')) {
       score += 25;
       reasons.push('❓ GitHub could not be checked - security complaints and repo status are UNKNOWN, not clear');
+    }
+
+    if (signals.includes('REPOSITORY_UNCHECKED')) {
+      score += 25;
+      reasons.push('❓ Linked repository is outside supported GitHub checks; repo status is UNKNOWN');
     }
 
     if (signals.includes('ARCHIVED_REPO')) {
@@ -306,20 +311,21 @@ export class DecisionTree {
     if (!severity) return 0;
 
     // Add specific pattern warnings
+    const source = patternResults.scope === 'registry_description_only' ? 'registry description' : 'checked text';
     if (severity.critical > 0) {
-      reasons.push(`🔴 ${severity.critical} CRITICAL pattern(s) detected in code`);
+      reasons.push(`🔴 ${severity.critical} CRITICAL pattern(s) found in ${source}`);
     }
 
     if (severity.high > 0) {
-      reasons.push(`⚠️ ${severity.high} HIGH-risk pattern(s) detected`);
+      reasons.push(`⚠️ ${severity.high} HIGH-risk pattern(s) found in ${source}`);
     }
 
     if (severity.medium > 0) {
-      reasons.push(`⚠️ ${severity.medium} MEDIUM-risk pattern(s) detected`);
+      reasons.push(`⚠️ ${severity.medium} MEDIUM-risk pattern(s) found in ${source}`);
     }
 
     if (severity.low > 0 && severity.low > 5) {
-      reasons.push(`ℹ️ ${severity.low} LOW-risk pattern(s) detected`);
+      reasons.push(`ℹ️ ${severity.low} LOW-risk pattern(s) found in ${source}`);
     }
 
     return Math.min(score, 100);

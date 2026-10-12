@@ -23,5 +23,5 @@ assert.equal(new Set(contract.reflectionQuestions.map(({ id }) => id)).size, 5);
 assert.ok(contract.reflectionQuestions.every(({ id }) => /^guard_dog_/.test(id)));
 assert.ok(contract.autonomousActions.every((action) => /read-only|drafting without enforcement|owned local/i.test(action)));
 assert.ok(contract.approvalRequiredActions.every((action) => /^Approval required/i.test(action)));
-assert.equal(packageManifest.version, '4.0.3');
+assert.equal(packageManifest.version, '4.1.0');
 assert.ok(packageManifest.files.includes('autonomizer.json'));

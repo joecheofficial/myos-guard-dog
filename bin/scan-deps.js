@@ -27,13 +27,13 @@ async function main() {
   const summary = summarizeDependencyScan(inventory, results);
   if (json) log(JSON.stringify(summary));
   else {
-    log(`Guard Dog: ${summary.dependencyCount} exact dependency versions audited; ${summary.status}; coverage ${summary.coverage} (${summary.incompleteCount} incomplete package checks).`);
+    log(`Guard Dog: ${summary.dependencyCount} exact dependency versions audited; ${summary.status}; coverage ${summary.coverage} (${summary.incompleteCount} incomplete, ${summary.suspiciousCount} suspicious package checks).`);
     summary.issues.forEach(issue => errorLog(`Incomplete coverage: ${issue}`));
   }
-  process.exitCode = summary.dangerousCount ? 1 : summary.coverage === 'incomplete' ? 2 : 0;
+  process.exitCode = summary.dangerousCount ? 1 : summary.coverage === 'incomplete' || summary.suspiciousCount ? 2 : 0;
 }
 main().catch(error => {
-  if (json) log(JSON.stringify({ status: 'incomplete', coverage: 'incomplete', dependencyCount: 0, dangerousCount: 0, incompleteCount: 0, issues: [error.message] }));
+  if (json) log(JSON.stringify({ status: 'incomplete', coverage: 'incomplete', dependencyCount: 0, dangerousCount: 0, suspiciousCount: 0, incompleteCount: 0, issues: [error.message] }));
   else errorLog(error.message);
   process.exitCode = 2;
 });
