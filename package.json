@@ -1,7 +1,7 @@
 {
   "name": "myos-guard-dog",
-  "version": "4.0.3",
-  "description": "Security agent for scanning packages and detecting malicious code",
+  "version": "5.0.0-rc.1",
+  "description": "Local workspace security scanning, exact package advisories, bounded npm artifact inspection and guarded installs",
   "main": "src/index.js",
   "type": "module",
   "bin": {
@@ -33,7 +33,7 @@
     "bin/scan-deps.js",
     "bin/nightly-scan.js",
     "bin/git-precommit-hook.sh",
-    "bin/run-cso.sh"
+    "WORKSPACE-SECURITY.md"
   ],
   "engines": {
     "node": "22.x || 24.x"

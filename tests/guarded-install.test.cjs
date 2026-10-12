@@ -27,7 +27,7 @@ test('resolves and approves transitive artifacts before modifying project or ins
   };
   class Dog { async analyze(...args) { scans.push(args); return {decision:{installAllowed:true}}; } }
   try {
-    await runGuardedInstall(['direct'], Dog, {platform:'linux',cwd,runner,fetchArtifact:async()=>bytes,fetchMetadata:async(name,version)=>({name,version,dist:{tarball:`https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`,integrity}})});
+    await runGuardedInstall(['direct'], Dog, {platform:'linux',cwd,runner,fetchArtifact:async()=>bytes,inspectArtifact:()=>({risk:'none'}),fetchMetadata:async(name,version)=>({name,version,dist:{tarball:`https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`,integrity}})});
     assert.deepEqual(scans.map(x=>[x[0],x[3]]), [['direct','1.0.0'],['child','2.0.0']]);
     assert.equal(calls.length, 2);
   } finally { fs.rmSync(cwd, {recursive:true,force:true}); }
@@ -61,7 +61,7 @@ test('unapproved transitive dependency, corrupt artifact and concurrent edit sto
       return {decision:scenario === 'unknown' ? {action:'SILENT'} : {installAllowed:scenario !== 'denied'}};
     } }
     try {
-      await assert.rejects(runGuardedInstall(['child'], Dog, {platform:'linux',cwd,runner,fetchArtifact:async()=>scenario === 'integrity' ? Buffer.from('wrong') : bytes,fetchMetadata:async(name,version)=>({name,version,dist:{tarball:'https://registry.npmjs.org/child/-/child.tgz',integrity}})}));
+      await assert.rejects(runGuardedInstall(['child'], Dog, {platform:'linux',cwd,runner,fetchArtifact:async()=>scenario === 'integrity' ? Buffer.from('wrong') : bytes,inspectArtifact:()=>({risk:'none'}),fetchMetadata:async(name,version)=>({name,version,dist:{tarball:'https://registry.npmjs.org/child/-/child.tgz',integrity}})}));
       assert.equal(executions, 1);
       assert.equal(fs.existsSync(path.join(cwd,'package-lock.json')), false);
       assert.equal(fs.readFileSync(path.join(cwd,'package.json'),'utf8'), original + (scenario === 'changed' ? '\n' : ''));
@@ -94,7 +94,7 @@ test('failed staged install leaves the project manifest, lockfile and node_modul
   class Dog { async analyze() { return { decision: { installAllowed: true } }; } }
   try {
     await assert.rejects(runGuardedInstall(['child'], Dog, {
-      platform: 'linux', cwd, runner, fetchArtifact: async () => bytes,
+      platform: 'linux', cwd, runner, fetchArtifact: async () => bytes, inspectArtifact: () => ({ risk: 'none' }),
       fetchMetadata: async (name, version) => ({ name, version, dist: { tarball: 'https://registry.npmjs.org/child/-/child-2.0.0.tgz', integrity } })
     }), /npm ci failed/);
     assert.equal(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8'), originalManifest);
@@ -131,14 +131,16 @@ test('rejects lockfile version impersonation before artifact scanning or install
   }
 });
 
-test('Windows discovers npm-cli.js and passes arguments directly to Node without a shell', async () => {
+test('Windows binds npm-cli.js to its Node installation and passes arguments without a shell', async () => {
   const { runGuardedInstall } = await import('../src/guarded-install.js');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'guardog-windows-test-'));
   // Spaces and shell metacharacters must remain literal path arguments.
   const npmRoot = path.join(root, 'Node & Tools');
+  const nodeExecutable = path.join(npmRoot, 'node.exe');
   const cli = path.join(npmRoot, 'node_modules', 'npm', 'bin', 'npm-cli.js');
   const cwd = path.join(root, 'Project & Files');
   fs.mkdirSync(path.dirname(cli), {recursive:true});
+  fs.writeFileSync(nodeExecutable, 'fixture');
   fs.writeFileSync(cli, '// Fixture only, never executed');
   fs.mkdirSync(cwd);
   fs.writeFileSync(path.join(cwd,'package.json'), JSON.stringify({name:'fixture',version:'1.0.0'}));
@@ -147,15 +149,16 @@ test('Windows discovers npm-cli.js and passes arguments directly to Node without
   const resolved = 'https://registry.npmjs.org/child/-/child-2.0.0.tgz';
   const commands = [];
   let scanned = false;
+  const previousKeys = { vt: process.env.VIRUSTOTAL_API_KEY, gh: process.env.GITHUB_API_TOKEN };
+  process.env.VIRUSTOTAL_API_KEY = 'fixture-vt-secret';
+  process.env.GITHUB_API_TOKEN = 'fixture-gh-secret';
   const runner = (command,args,options) => {
     commands.push({command,args});
     assert.equal(options.shell,false);
-    if (command === 'where.exe') {
-      assert.deepEqual(args,['npm.cmd']);
-      return {status:0,stdout:path.join(npmRoot,'npm.cmd')+'\r\n'};
-    }
-    assert.equal(command,process.execPath);
-    assert.equal(args[0],cli);
+    assert.equal(options.env.VIRUSTOTAL_API_KEY, undefined);
+    assert.equal(options.env.GITHUB_API_TOKEN, undefined);
+    assert.equal(command,fs.realpathSync(nodeExecutable));
+    assert.equal(args[0],fs.realpathSync(cli));
     assert.ok(args.includes('--ignore-scripts'));
     if (args[1] === 'install') {
       assert.equal(args[2],'child@2.0.0');
@@ -176,8 +179,32 @@ test('Windows discovers npm-cli.js and passes arguments directly to Node without
     return {decision:{installAllowed:true}};
   } }
   try {
-    await runGuardedInstall(['npm','child@2.0.0'],Dog,{platform:'win32',cwd,runner,fetchArtifact:async()=>bytes,fetchMetadata:async(name,version)=>({name,version,dist:{tarball:resolved,integrity}})});
-    assert.equal(commands.length,3);
-    assert.equal(commands[0].command,'where.exe');
-  } finally { fs.rmSync(root,{recursive:true,force:true}); }
+    await runGuardedInstall(['npm','child@2.0.0'],Dog,{platform:'win32',cwd,nodeExecutable,runner,fetchArtifact:async()=>bytes,inspectArtifact:()=>({risk:'none'}),fetchMetadata:async(name,version)=>({name,version,dist:{tarball:resolved,integrity}})});
+    assert.equal(commands.length,2);
+  } finally {
+    if (previousKeys.vt === undefined) delete process.env.VIRUSTOTAL_API_KEY; else process.env.VIRUSTOTAL_API_KEY = previousKeys.vt;
+    if (previousKeys.gh === undefined) delete process.env.GITHUB_API_TOKEN; else process.env.GITHUB_API_TOKEN = previousKeys.gh;
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
+
+test('Windows rejects a Node installation inside the project before running npm', async () => {
+  const { runGuardedInstall } = await import('../src/guarded-install.js');
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'guardog-windows-hijack-'));
+  const cli = path.join(cwd, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  const nodeExecutable = path.join(cwd, 'node.exe');
+  fs.mkdirSync(path.dirname(cli), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0' }));
+  fs.writeFileSync(path.join(cwd, 'npm.cmd'), 'fixture');
+  fs.writeFileSync(cli, 'fixture');
+  fs.writeFileSync(nodeExecutable, 'fixture');
+  const commands = [];
+  const runner = (command, _args, options) => {
+    commands.push(command);
+    return { status: 0 };
+  };
+  try {
+    await assert.rejects(runGuardedInstall(['child'], class {}, { platform: 'win32', cwd, nodeExecutable, runner }), /inside this project/);
+    assert.equal(commands.length, 0);
+  } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
 });

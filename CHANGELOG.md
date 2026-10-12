@@ -1,4 +1,31 @@
+# Workspace scanner prerelease: 5.0.0-rc.1
+
+- Adds an offline workspace command with 28 original rules for secrets, suspicious source patterns, development configuration, CI and agent permissions.
+- Adds bounded no-follow file traversal, explicit incomplete coverage, JSON/SARIF output and non-suppressing baselines. Reports do not contain matched credential values.
+- Adds opt-in workspace scanning to existing nightly jobs and reports local coverage separately from dependency protection.
+- Adds an explicit adapter for a separately installed ClamAV engine. Missing, stale or failed engines remain incomplete; GuardDog never installs or updates that engine automatically.
+- Preserves both the local nightly quota/rotation improvements and public 4.1 package-artifact inspection.
+- Expands CI to Node 22/24 on macOS, Linux and Windows; adds an isolated Linux ClamAV release probe with harmless fixtures.
+
+Native rules are heuristic checks, not semantic SAST or endpoint antivirus. Commercial release requires the evidence in WORKSPACE-SECURITY.md; this version is a release candidate.
+
 # Changelog
+
+## 4.1.0 (release candidate)
+
+- Add keyless, exact-version npm artifact inspection with verified registry digest or local `.tgz` input. Parse archive bytes in memory with bounded size and entry limits; report lifecycle scripts and correlated source indicators without executing or extracting package code.
+- Gate guarded npm installs on that bounded artifact inspection in addition to existing OSV, registry and VirusTotal checks. High-risk, review and incomplete artifact findings block the guarded install with a file and rule to examine.
+- Make failed pattern checks reach the actual install verdict, and make suspicious project-audit results visible with a nonzero exit status.
+- Fold in the unreleased 4.0.4 candidate fixes below.
+
+- Resolve Windows helpers by absolute system path, reject project-local npm entry points, and keep Guard Dog credentials out of helper and npm child environments.
+- Treat non-registry and unproven dependency origins, lock and install mismatches, and installed-only packages as incomplete inventory coverage.
+- Block UNCONFIRMED installs, distinguish unsupported repository hosts, scope trusted names to their ecosystem, and use canonical GitHub repository names after redirects.
+- Make batch and command failures visible in exit codes; recover abandoned quota locks, fail closed on corrupt ledgers, and write quota records atomically.
+- Require the exact PyPI distribution hash for multi-file releases and state the metadata-only scope of pattern checks in output and docs.
+- Bound package-batch analysis to four concurrent packages while preserving order and VirusTotal API-key pacing.
+- Detect legacy `# guarddog-nightly` cron entries and preserve customized schedules.
+- Make scan-root regression coverage portable across Windows, macOS and Linux.
 
 ## 4.0.3
 

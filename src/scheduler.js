@@ -2,12 +2,15 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ensureGuardogHome, guardogHome, packageRoot } from './paths.js';
+import { childEnvironment, windowsSystemTool } from './windows-process.js';
 
 export const CRON_MARKER = '# guardog-nightly';
+const LEGACY_CRON_MARKERS = [CRON_MARKER, '# guarddog-nightly'];
 const TASK = 'GuardogNightlyScan';
 const RUNNER_HEADER = '// MyOS Guard Dog owned runner. taskClass=security_scan\n';
 const LEGACY_RUNNER_HEADER = '// Guardog owned runner. taskClass=security_scan\n';
 const callOptions = { encoding: 'utf8', timeout: 10000, windowsHide: true, shell: false };
+const commandOptions = () => ({ ...callOptions, env: childEnvironment() });
 export const shellQuote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 const xmlText = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
 
@@ -55,7 +58,7 @@ export function inspectSchedule(config = {}, options = {}) {
   const spec = scheduleSpec(config, options);
   const run = options.run || spawnSync;
   if (spec.platform === 'win32') {
-    const result = run('schtasks.exe', ['/Query', '/TN', TASK, '/XML'], callOptions);
+    const result = run(windowsSystemTool('schtasks.exe'), ['/Query', '/TN', TASK, '/XML'], commandOptions());
     if (result.status === 0) {
       const text = result.stdout || '';
       const decode = value => value.replaceAll('&quot;', '"').replaceAll('&apos;', "'").replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
@@ -69,16 +72,16 @@ export function inspectSchedule(config = {}, options = {}) {
       const current = owned && oneAction && decode(executable) === spec.node && daily && calendar.includes(`T${spec.time}:00`) && !/<Enabled>\s*false\s*<\/Enabled>/.test(text);
       return { state: !owned ? 'conflict' : current ? 'registered' : 'stale', registered: current, detail: !owned ? 'The task name belongs to another command.' : current ? 'Task Scheduler registration found.' : 'Task Scheduler action, time, or enabled state differs from current settings.' };
     }
-    const listing = run('schtasks.exe', ['/Query', '/FO', 'CSV', '/NH'], callOptions);
+    const listing = run(windowsSystemTool('schtasks.exe'), ['/Query', '/FO', 'CSV', '/NH'], commandOptions());
     if (listing.status === 0 && !(listing.stdout || '').includes(TASK)) return { state: 'missing', registered: false, detail: 'No MyOS Guard Dog scheduled task.' };
     return { state: 'unknown', registered: false, detail: result.error?.message || result.stderr || 'Cannot inspect Task Scheduler.' };
   }
-  const result = run('crontab', ['-l'], callOptions);
+  const result = run('crontab', ['-l'], commandOptions());
   if (result.status !== 0) {
     if (result.status === 1 && /no crontab for/i.test(result.stderr || '')) return { state: 'missing', registered: false, detail: 'No user crontab.' };
     return { state: 'unknown', registered: false, detail: result.error?.message || result.stderr || 'Cannot inspect crontab.' };
   }
-  const lines = result.stdout.split('\n').filter(line => line.trim().endsWith(CRON_MARKER));
+  const lines = result.stdout.split('\n').filter(line => LEGACY_CRON_MARKERS.some(marker => line.trim().endsWith(marker)));
   if (lines.length === 0) return { state: 'missing', registered: false, detail: 'No MyOS Guard Dog cron entry.' };
   const registered = lines.length === 1 && lines[0] === spec.line;
   return { state: registered ? 'registered' : 'stale', registered, detail: registered ? `Cron registered for ${spec.time} local time.` : 'MyOS Guard Dog cron entry differs from current settings.' };
@@ -99,12 +102,12 @@ export function registerSchedule(config = {}, options = {}) {
   if (spec.platform === 'win32') {
     const xmlPath = join(spec.home, 'bin', 'nightly-task.xml');
     writeFileSync(xmlPath, '\ufeff' + spec.xml, 'utf16le');
-    result = run('schtasks.exe', ['/Create', '/TN', TASK, '/XML', xmlPath, '/F'], callOptions);
+    result = run(windowsSystemTool('schtasks.exe'), ['/Create', '/TN', TASK, '/XML', xmlPath, '/F'], commandOptions());
   } else {
-    const existing = run('crontab', ['-l'], callOptions);
+    const existing = run('crontab', ['-l'], commandOptions());
     if (existing.status !== 0 && !(existing.status === 1 && /no crontab for/i.test(existing.stderr || ''))) return { ok: false, message: 'Cannot safely read existing crontab.' };
     const lines = (existing.stdout || '').split('\n').filter(line => !line.trim().endsWith(CRON_MARKER));
-    result = run('crontab', ['-'], { ...callOptions, input: [...lines, spec.line, ''].join('\n') });
+    result = run('crontab', ['-'], { ...commandOptions(), input: [...lines, spec.line, ''].join('\n') });
   }
   if (result.status !== 0) return { ok: false, message: result.error?.message || result.stderr || result.stdout || 'Schedule registration failed.' };
   const checked = inspectSchedule(config, options);
@@ -121,11 +124,11 @@ export function unregisterSchedule(config = {}, options = {}) {
     return { ok: false, message: 'A customized or stale Guard Dog schedule was preserved. Remove it manually after reviewing the command.' };
   }
   let result;
-  if (spec.platform === 'win32') result = run('schtasks.exe', ['/Delete', '/TN', TASK, '/F'], callOptions);
+  if (spec.platform === 'win32') result = run(windowsSystemTool('schtasks.exe'), ['/Delete', '/TN', TASK, '/F'], commandOptions());
   else {
-    const existing = run('crontab', ['-l'], callOptions);
+    const existing = run('crontab', ['-l'], commandOptions());
     if (existing.status !== 0) return { ok: false, message: 'Cannot safely read existing crontab.' };
-    result = run('crontab', ['-'], { ...callOptions, input: existing.stdout.split('\n').filter(line => !line.trim().endsWith(CRON_MARKER)).join('\n') + '\n' });
+    result = run('crontab', ['-'], { ...commandOptions(), input: existing.stdout.split('\n').filter(line => !line.trim().endsWith(CRON_MARKER)).join('\n') + '\n' });
   }
   const removed = result.status === 0 && inspectSchedule(config, options).state === 'missing';
   return { ok: removed, message: removed ? 'MyOS Guard Dog nightly schedule removed.' : result.stderr || 'Schedule removal not verified.' };

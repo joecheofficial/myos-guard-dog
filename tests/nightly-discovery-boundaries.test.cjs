@@ -57,18 +57,17 @@ test('reaching the depth limit and unreadable folders are counted as boundaries,
   } finally { fs.chmodSync(locked, 0o755); }
 }));
 
-test('an unreadable scan root is still reported as an issue', () => withState(async (root, ok) => {
+test('a non-directory scan root is reported unavailable', () => withState(async (root, ok) => {
   const { runNightly } = await import('../bin/nightly-scan.js');
-  if (process.getuid && process.getuid() === 0) return;
-  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'guardog-locked-root-'));
-  fs.chmodSync(other, 0o000);
+  const other = path.join(os.tmpdir(), `guardog-nondirectory-${Date.now()}-${Math.random()}`);
+  fs.writeFileSync(other, 'not a directory');
   fs.mkdirSync(path.join(root, 'p')); fs.writeFileSync(path.join(root, 'p', 'package.json'), '{}');
   const health = { platform: 'linux', run: () => ({ status: 0, stdout: '' }) };
   try {
     const receipt = runNightly({ roots: [root, other], run: () => ok(), healthOptions: health });
-    assert.ok(receipt.issues.some((issue) => issue.startsWith('Cannot read ' + other)));
+    assert.ok(receipt.issues.some((issue) => issue === 'Scan root is unavailable: ' + other));
     assert.equal(receipt.status, 'incomplete');
-  } finally { fs.chmodSync(other, 0o755); fs.rmSync(other, { recursive: true, force: true }); }
+  } finally { fs.rmSync(other, { force: true }); }
 }));
 
 test('config scanRoots win over GUARDOG_WORKSPACE, which stays the fallback', () => withState(async (root, ok) => {

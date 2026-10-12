@@ -1,16 +1,16 @@
 # MyOS Guard Dog: Project Context
-> Last updated: 2026-09-21
+> Last updated: 2026-10-03
 
 ## What It Is
 
-A public npm/PyPI package security scanner packaged from the internal `guard-dog` agent and published to GitHub for Mastermind students. Scans packages before install using CVE lookups (OSV), reputation checks, malicious code pattern analysis, and optional VirusTotal results.
+A public package security scanner packaged from the internal `guard-dog` agent and published to GitHub for Mastermind students. Supported guarded npm installs use OSV advisories, registry and GitHub metadata, optional VirusTotal hash reports, and bounded static inspection of the exact npm archive. Regular analyze/scan pattern checks inspect registry description text only; `artifact` and guarded install read archive source bytes without extraction or execution.
 
-Works out of the box with no API keys. VirusTotal is optional and subject to VirusTotal's API terms.
+OSV advisory checks work without an API key. VirusTotal is optional for analysis, but guarded installs require a fresh VirusTotal result for the exact artifact and remain blocked without one.
 
 ## URLs / Access
 
 - GitHub: https://github.com/josephtandle/myos-guard-dog
-- Install: `npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v4.0.3 && myos-guard-dog setup --quick`
+- After verifying the v4.1.0 GitHub tag is published, install it with `npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v4.1.0 && myos-guard-dog setup --quick`. Verify the installed version before use.
 
 ## App Location
 
@@ -42,7 +42,7 @@ The optional `myos-guard-dog.md` Claude Code skill is included in the repository
 
 ## Verdicts (v2.0.0)
 
-- SILENT / SAFE (score < 50, no risk signals): checked and clean
+- SILENT / SAFE (score < 50, no risk signals): no red flag in the checks that completed; package source code was not inspected
 - SILENT / UNCONFIRMED (score < 50 but risk signals present): NOT an all-clear. The signals scored
   below the warning threshold, and they are printed. Renders with an info icon, never a green check.
 - WHINE / SUSPICIOUS (score 50-99): suspicious

@@ -1,0 +1,39 @@
+name: Guard Dog explicit ClamAV validation
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - src/workspace-engines.js
+      - tests/workspace-live.cjs
+      - .github/workflows/clamav-live.yml
+permissions:
+  contents: read
+jobs:
+  live-engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - name: Install exact resolved distribution engine and update test database
+        run: |
+          sudo apt-get update -qq
+          CLAM_VERSION="$(apt-cache policy clamav | awk '/Candidate:/ {print $2}')"
+          test -n "$CLAM_VERSION" && test "$CLAM_VERSION" != '(none)'
+          sudo apt-get install -y --no-install-recommends "clamav=$CLAM_VERSION" "clamav-freshclam=$CLAM_VERSION"
+          sudo systemctl stop clamav-freshclam || true
+          sudo freshclam
+          clamscan --version > clamav-provenance.txt
+          dpkg-query -W clamav clamav-freshclam >> clamav-provenance.txt
+          sha256sum /usr/bin/clamscan >> clamav-provenance.txt
+      - name: Test harmless fixtures with network disabled
+        run: sudo unshare --net env PATH="$PATH" CLAMAV_EXECUTABLE=/usr/bin/clamscan node tests/workspace-live.cjs > clamav-receipt.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: clamav-validation
+          path: |
+            clamav-provenance.txt
+            clamav-receipt.json

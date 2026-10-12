@@ -21,7 +21,7 @@ test('partialNightlyOk: quota stop is deferred (exit 0), excludes are skipped, n
   const quota = { status: 2, stdout: JSON.stringify({ status: 'incomplete', dependencyCount: 1, dangerousCount: 0, quotaExhausted: true, issues: ['x: scan coverage incomplete; VirusTotal quota'] }) };
   try {
     const first = [];
-    let receipt = runNightly({ config, roots: [root], healthOptions: health, run: (_, args) => { first.push(path.basename(path.dirname(args[1]))); return args[1].includes('/b/') ? quota : ok; } });
+    let receipt = runNightly({ config, roots: [root], healthOptions: health, run: (_, args) => { first.push(path.basename(path.dirname(args[1]))); return path.basename(path.dirname(args[1])) === 'b' ? quota : ok; } });
     assert.deepEqual(first, ['a', 'b'], 'excluded tree is never scanned; scan stops at the quota');
     assert.deepEqual(receipt.issues, []);
     assert.equal(receipt.status, 'partial');
@@ -54,7 +54,7 @@ test('partialNightlyOk: incomplete-only manifests are coverage notes, but an all
   const ok = { status: 0, stdout: JSON.stringify({ status: 'complete', dependencyCount: 2, dangerousCount: 0, issues: [] }) };
   const stale = { status: 2, stdout: JSON.stringify({ status: 'incomplete', dependencyCount: 1, dangerousCount: 0, issues: ['x@1.0.0: scan coverage incomplete'] }) };
   try {
-    let receipt = runNightly({ config, roots: [root], healthOptions: health, run: (_, args) => (args[1].includes('/a/') ? ok : stale) });
+    let receipt = runNightly({ config, roots: [root], healthOptions: health, run: (_, args) => (path.basename(path.dirname(args[1])) === 'a' ? ok : stale) });
     assert.deepEqual(receipt.issues, []);
     assert.equal(receipt.exitCode, 0);
     assert.equal(receipt.coverage.incompleteManifests, 1);

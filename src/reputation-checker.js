@@ -135,21 +135,23 @@ export class ReputationChecker {
       const data = await response.json();
       const info = data.info;
       const urls = data.urls || [];
-      const tarball = urls[0]?.url || info.package_url || null;
-      const sha256 = urls[0]?.digests?.sha256 || null;
+      const distributions = urls.map(file => ({ filename: file.filename, url: file.url, sha256: file.digests?.sha256 || null }));
+      const onlyFile = distributions.length === 1 ? distributions[0] : null;
 
       return {
         name: info.name,
         version: info.version,
         description: info.summary,
         downloads: null, // PyPI doesn't provide this in main API
-        publishDate: data.releases?.[info.version]?.[0]?.upload_time,
+        publishDate: urls[0]?.upload_time_iso_8601 || urls[0]?.upload_time || data.releases?.[info.version]?.[0]?.upload_time || null,
         author: info.author,
         repository: this.parseRepository(info.project_urls),
         license: info.license,
         deprecated: false,
-        tarball,
-        sha256
+        distributions,
+        tarball: onlyFile?.url || null,
+        sha256: onlyFile?.sha256 || null,
+        artifactCoverage: 'incomplete'
       };
     } finally {
       clearTimeout(timeoutId);
@@ -205,12 +207,14 @@ export class ReputationChecker {
   async checkGitHub(repoUrl) {
     if (!repoUrl) return null;
 
-    // Parse owner/repo from URL
-    const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+    // Only the actual GitHub host can satisfy repository coverage.
+    let parsed;
+    try { parsed = new URL(repoUrl.replace(/^git\+/, '')); } catch { return null; }
+    if (parsed.protocol !== 'https:' || !['github.com', 'www.github.com'].includes(parsed.hostname)
+        || parsed.port || parsed.username || parsed.password) return null;
+    const match = /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(parsed.pathname);
     if (!match) return null;
-
-    const [, owner, repo] = match;
-    const repoName = repo.replace(/\.git$/, '');
+    const [, owner, repoName] = match;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.config.github.timeoutMs);
@@ -251,7 +255,7 @@ export class ReputationChecker {
       // Unverified open reports are weak evidence, not a malware verdict.
       let issuesData = { total_count: null };
       try {
-        const query = `repo:${owner}/${repoName} is:issue is:open malware in:title`;
+        const query = `repo:${data.full_name || `${owner}/${repoName}`} is:issue is:open malware in:title`;
         const issuesResponse = await fetch(
           `${this.config.github.apiUrl}/search/issues?q=${encodeURIComponent(query)}`,
           { signal: controller.signal, headers }
@@ -331,8 +335,8 @@ export class ReputationChecker {
     }
 
     // Check recent publication (typosquatting risk)
-    if (registry.createdAt) {
-      const daysSincePublish = (Date.now() - new Date(registry.createdAt)) / (1000 * 60 * 60 * 24);
+    if (registry.publishDate || registry.createdAt) {
+      const daysSincePublish = (Date.now() - new Date(registry.publishDate || registry.createdAt)) / (1000 * 60 * 60 * 24);
       if (daysSincePublish >= 0 && daysSincePublish < 30) {
         signals.push('NEWLY_PUBLISHED');
       }
@@ -341,6 +345,8 @@ export class ReputationChecker {
     // Check no repository
     if (!registry.repository) {
       signals.push('NO_REPOSITORY');
+    } else if (!github) {
+      signals.push('REPOSITORY_UNCHECKED');
     }
 
     // GitHub signals

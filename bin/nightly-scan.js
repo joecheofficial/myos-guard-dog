@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, readdirSync, realpathSync, statSync, writeFileSync, renameSync, readFileSync, openSync, closeSync, unlinkSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -8,6 +8,7 @@ import { ensureGuardogHome, guardogHome, packageRoot } from '../src/paths.js';
 import { loadUserConfig } from '../src/setup.js';
 import { checkHealth } from '../src/health.js';
 import { recordResilienceCycle } from '../src/resilience-loop.js';
+import { scanWorkspace, within } from '../src/workspace-scan.js';
 import { assertSupportedNodeVersion } from '../src/node-version.js';
 
 assertSupportedNodeVersion();
@@ -58,7 +59,34 @@ function performNightly(options) {
   } catch (error) {
     preflight = { checkedAt: new Date().toISOString(), ok: false, repairs: [], issues: ['Health preflight failed: ' + error.message] };
   }
-  const receipt = { taskClass: 'security_scan', startedAt: new Date().toISOString(), status: 'incomplete', roots, projectsScanned: 0, dependencyCount: 0, dangerousCount: 0, preflight, issues: preflight.issues.map(issue => 'Health: ' + issue), boundaries: { depthLimited: 0, unreadable: 0, samples: [] }, coverage: { projectsWithoutInventory: 0, samples: [] } };
+  const receipt = { taskClass: 'security_scan', startedAt: new Date().toISOString(), status: 'incomplete', roots, projectsScanned: 0, dependencyCount: 0, dangerousCount: 0, suspiciousCount: 0, preflight, issues: preflight.issues.map(issue => 'Health: ' + issue), boundaries: { depthLimited: 0, unreadable: 0, samples: [] }, coverage: { projectsWithoutInventory: 0, samples: [] } };
+  // Opted-in local pass runs before network-dependent package audits.
+  if (config.workspaceScan === true) {
+    receipt.workspace = { enabled: true, findings: [], rootsScanned: 0, coverage: { complete: true, filesScanned: 0 }, issues: [] };
+    const uniqueRoots = [];
+    for (const root of roots) {
+      const identity = typeof root === 'string' ? realPathOrNull(root) : null;
+      if (!identity) { receipt.workspace.coverage.complete = false; receipt.workspace.issues.push({ code: 'root_unavailable' }); continue; }
+      if (uniqueRoots.some(parent => within(parent, identity))) continue;
+      for (let i = uniqueRoots.length - 1; i >= 0; i--) if (within(identity, uniqueRoots[i])) uniqueRoots.splice(i, 1);
+      uniqueRoots.push(identity);
+    }
+    receipt.workspace.roots = uniqueRoots;
+    for (const root of uniqueRoots) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0 || receipt.workspace.rootsScanned >= 50) { receipt.workspace.coverage.complete = false; receipt.workspace.issues.push({ code: 'nightly_workspace_budget' }); break; }
+      const report = scanWorkspace(root, { timeoutMs: Math.min(60000, remaining), maxFindings: 200 });
+      receipt.workspace.rootsScanned++;
+      receipt.workspace.coverage.filesScanned += report.coverage.filesScanned;
+      receipt.workspace.coverage.complete &&= report.coverage.complete;
+      receipt.workspace.findings.push(...report.findings.map(finding => ({ ...finding, rootIndex: receipt.workspace.rootsScanned - 1 })));
+      receipt.workspace.issues.push(...report.issues.slice(0, 20));
+      receipt.workspace.scope = report.scope;
+      if (report.exitCode === 1) receipt.dangerousCount += report.findings.filter(f => ['critical', 'high'].includes(f.severity)).length;
+    }
+    if (!receipt.workspace.rootsScanned) receipt.workspace.coverage.complete = false;
+    if (!receipt.workspace.coverage.complete) receipt.issues.push('Local workspace scan coverage is incomplete; inspect workspace receipt.');
+  }
   const manifests = new Set();
   const visited = new Set();
   // Opt-in (config.scanExcludes): path fragments to skip, for vendored or scratch trees.
@@ -86,7 +114,7 @@ function performNightly(options) {
         const full = join(dir, entry.name);
         if (!entry.isDirectory()) { if (entry.isFile() && entry.name === 'package.json') manifests.add(full); continue; }
         if (skipDirs.has(entry.name) || entry.name.startsWith('.')) continue;
-        if (excludes.some(fragment => full.includes(fragment))) continue;
+        if (excludes.some(fragment => full.split(sep).join('/').includes(fragment.split(sep).join('/')))) continue;
         // ~/Library is app data (caches, containers, mail), not code. Walking it
         // costs minutes and trips macOS privacy guards (EPERM) on every run.
         if (atHome && homeOnlySkipDirs.has(entry.name)) continue;
@@ -139,17 +167,19 @@ function performNightly(options) {
     }
     try {
       const summary = JSON.parse(result.stdout);
-      if (!Number.isInteger(summary.dependencyCount) || summary.dependencyCount < 0 || !['complete', 'dangerous', 'incomplete'].includes(summary.status)) throw new Error('invalid scan summary');
+      if (!Number.isInteger(summary.dependencyCount) || summary.dependencyCount < 0 || !['complete', 'dangerous', 'suspicious', 'incomplete'].includes(summary.status)) throw new Error('invalid scan summary');
       receipt.dependencyCount += summary.dependencyCount;
       receipt.dangerousCount += Number(summary.dangerousCount) || 0;
+      receipt.suspiciousCount += Number(summary.suspiciousCount) || 0;
       if (summary.status === 'dangerous' && !summary.dangerousCount) receipt.dangerousCount++;
-      const expectedExit = { complete: 0, dangerous: 1, incomplete: 2 }[summary.status];
+      if (summary.status === 'suspicious' && !summary.suspiciousCount) receipt.suspiciousCount++;
+      const expectedExit = { complete: 0, dangerous: 1, suspicious: 2, incomplete: 2 }[summary.status];
       const issueTexts = (summary.issues || []).map((issue) => (typeof issue === 'string' ? issue : JSON.stringify(issue)));
       // A project with no lockfile or installed inventory (a scratch folder, a
       // checkout never installed) is a coverage gap, not a failed night. Record
       // it under coverage and keep the receipt complete.
       // A manifest that already found danger is never deferred: its findings count tonight.
-      const foundDanger = summary.status === 'dangerous' || (Number(summary.dangerousCount) || 0) > 0;
+      const foundDanger = ['dangerous', 'suspicious'].includes(summary.status) || (Number(summary.dangerousCount) || 0) > 0 || (Number(summary.suspiciousCount) || 0) > 0;
       if (partialOk && summary.quotaExhausted === true && !foundDanger) {
         receipt.dependencyCount -= summary.dependencyCount;
         deferred.push(...ordered.slice(index));
@@ -158,13 +188,13 @@ function performNightly(options) {
       // partialNightlyOk: a manifest whose only problem is incomplete lookups (stale or missing
       // VirusTotal report, registry timeout) is a coverage note, not a failed night. Danger still
       // exits 1, and if no manifest at all scanned complete the night is still incomplete.
-      if (partialOk && summary.status === 'incomplete' && result.status === expectedExit && !summary.dangerousCount && issueTexts.length > 0) {
+      if (partialOk && summary.status === 'incomplete' && result.status === expectedExit && !foundDanger && issueTexts.length > 0) {
         receipt.coverage.incompleteManifests = (receipt.coverage.incompleteManifests || 0) + 1;
         incompleteOnly.push(manifest);
         lastDone = manifest;
         continue;
       }
-      const coverageOnly = summary.status === 'incomplete' && result.status === expectedExit && !summary.dangerousCount && issueTexts.length > 0 && issueTexts.every((text) => COVERAGE_GAP.test(text));
+      const coverageOnly = summary.status === 'incomplete' && result.status === expectedExit && !foundDanger && issueTexts.length > 0 && issueTexts.every((text) => COVERAGE_GAP.test(text));
       if (coverageOnly) {
         receipt.coverage.projectsWithoutInventory += 1;
         if (receipt.coverage.samples.length < 20) receipt.coverage.samples.push(manifest + ': ' + issueTexts[0]);
@@ -173,7 +203,7 @@ function performNightly(options) {
         for (const text of issueTexts) receipt.issues.push(manifest + ': ' + text);
       }
       lastDone = manifest;
-      if (summary.status === 'complete' || summary.status === 'dangerous') completeManifests++;
+      if (['complete', 'dangerous', 'suspicious'].includes(summary.status)) completeManifests++;
       if (summary.quotaExhausted === true) {
         receipt.issues.push('VirusTotal daily quota exhausted. Stopped remaining project scans to preserve the next UTC-day allowance.');
         break;
@@ -189,9 +219,10 @@ function performNightly(options) {
     if (deferred.length) receipt.coverage.deferredManifests = deferred.length;
   }
   if (receipt.dependencyCount === 0 && !(partialOk && deferred.length)) receipt.issues.push('No installed dependencies were scanned.');
-  receipt.status = receipt.issues.length ? 'incomplete' : receipt.dangerousCount > 0 ? 'dangerous' : deferred.length ? 'partial' : 'complete';
+  const workspaceDanger = receipt.workspace?.findings.some(f => ['critical', 'high'].includes(f.severity));
+  receipt.status = workspaceDanger ? 'dangerous' : receipt.issues.length ? 'incomplete' : receipt.dangerousCount > 0 ? 'dangerous' : receipt.suspiciousCount > 0 ? 'suspicious' : deferred.length ? 'partial' : 'complete';
   receipt.finishedAt = new Date().toISOString();
-  receipt.exitCode = receipt.status === 'incomplete' ? 2 : receipt.status === 'dangerous' ? 1 : 0; // 'partial' (opt-in) exits 0
+  receipt.exitCode = receipt.status === 'incomplete' || receipt.status === 'suspicious' ? 2 : receipt.status === 'dangerous' ? 1 : 0; // 'partial' (opt-in) exits 0
   const receiptPath = join(guardogHome(), 'data', 'last-nightly.json');
   const temporary = receiptPath + '.' + process.pid + '.tmp';
   writeFileSync(temporary, JSON.stringify(receipt, null, 2), { mode: 0o600 });
@@ -201,8 +232,8 @@ function performNightly(options) {
     receipt.resilience = recordResilienceCycle({ phase: 'nightly', health, receipt });
   } catch (error) {
     receipt.issues.push('Resilience verification failed: ' + error.message);
-    receipt.status = 'incomplete';
-    receipt.exitCode = 2;
+    receipt.status = workspaceDanger ? 'dangerous' : 'incomplete';
+    receipt.exitCode = workspaceDanger ? 1 : 2;
   }
   writeFileSync(temporary, JSON.stringify(receipt, null, 2), { mode: 0o600 });
   renameSync(temporary, receiptPath);
