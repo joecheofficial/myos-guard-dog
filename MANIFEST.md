@@ -1,4 +1,4 @@
-# MyOS Guard Dog 4.1 operations
+# MyOS Guard Dog 5.0 operations
 
 Guard Dog protects supported package workflows, not the entire operating system.
 

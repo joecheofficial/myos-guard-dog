@@ -15,7 +15,7 @@ requests a private security contact without including exploit details.
 
 ## Supported Versions
 
-MyOS Guard Dog 4.x is the supported release line for this code. Security fixes land on the
+MyOS Guard Dog 5.x is the supported release line for this code. Security fixes land on the
 default branch first, then ship from the latest tagged version.
 
 ## Handling Secrets
