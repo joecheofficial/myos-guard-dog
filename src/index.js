@@ -440,8 +440,12 @@ function usage() {
   console.log('  myos-guard-dog artifact <file.tgz|npm:name@version> [--json] - Inspect exact npm archive bytes');
   console.log('  myos-guard-dog install [npm] <package>       - Gate exact npm artifacts; scripts stay disabled');
   console.log('  myos-guard-dog scan <project> [--json]       - Audit exact installed or locked npm versions');
+  console.log('  myos-guard-dog workspace <root> [--json|--sarif] - Scan local code, secrets and configuration');
+  console.log('    [--baseline file] [--write-baseline new-file] [--output new-file]');
+  console.log('    [--clamav /absolute/clamscan] [--include-dependencies] [--fail-on high|medium|low]');
+  console.log('    [--max-files N] [--max-file-bytes N] [--max-bytes N] [--max-depth N] [--timeout-ms N]');
   console.log('  myos-guard-dog nightly                       - Repair local health and scan configured roots');
-  console.log('  myos-guard-dog updates enable --workspace <folder> --time HH:MM');
+  console.log('  myos-guard-dog updates enable --workspace <folder> --time HH:MM [--files]');
   console.log('  myos-guard-dog updates disable|status       - Manage and verify the daily schedule');
   console.log('  myos-guard-dog hooks enable|disable|status   - Manage git dependency hook');
 }
@@ -451,6 +455,7 @@ function updatesCommand(action, args = []) {
   if (action === 'enable') {
     const roots = args.flatMap((arg, i) => arg === '--workspace' && args[i + 1] ? [resolve(args[i + 1])] : []);
     if (roots.length) config.scanRoots = roots;
+    if (args.includes('--files')) config.workspaceScan = true;
     const time = args.indexOf('--time');
     if (time !== -1) config.nightlyTime = args[time + 1];
     const result = installNightlySchedule(config);
@@ -513,6 +518,16 @@ async function main(argv = process.argv.slice(2)) {
     hooksCommand(args[1] || 'status');
   } else if (command === 'install') {
     await runGuardedInstall(args.slice(1), GuardDog);
+  } else if (command === 'workspace') {
+    try {
+      const { workspaceCommand } = await import('./workspace-cli.js');
+      process.exitCode = workspaceCommand(args.slice(1));
+    } catch {
+      const error = { schemaVersion: 1, status: 'incomplete', exitCode: 2, issues: [{ code: 'workspace_command_failed' }] };
+      if (args.includes('--json')) console.log(JSON.stringify(error));
+      else console.error('Workspace scan incomplete: invalid options, baseline, root, or output destination. Existing files are never overwritten.');
+      process.exitCode = 2;
+    }
   } else if (command === 'scan') {
     const project = resolve(args[1] || process.cwd());
     const manifest = project.endsWith('package.json') ? project : join(project, 'package.json');

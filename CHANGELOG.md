@@ -1,3 +1,14 @@
+# Workspace scanner prerelease: 5.0.0-rc.1
+
+- Adds an offline workspace command with 28 original rules for secrets, suspicious source patterns, development configuration, CI and agent permissions.
+- Adds bounded no-follow file traversal, explicit incomplete coverage, JSON/SARIF output and non-suppressing baselines. Reports do not contain matched credential values.
+- Adds opt-in workspace scanning to existing nightly jobs and reports local coverage separately from dependency protection.
+- Adds an explicit adapter for a separately installed ClamAV engine. Missing, stale or failed engines remain incomplete; GuardDog never installs or updates that engine automatically.
+- Preserves both the local nightly quota/rotation improvements and public 4.1 package-artifact inspection.
+- Expands CI to Node 22/24 on macOS, Linux and Windows; adds an isolated Linux ClamAV release probe with harmless fixtures.
+
+Native rules are heuristic checks, not semantic SAST or endpoint antivirus. Commercial release requires the evidence in WORKSPACE-SECURITY.md; this version is a release candidate.
+
 # Changelog
 
 ## 4.1.0 (release candidate)

@@ -1,10 +1,33 @@
-# MyOS Guard Dog 4.1
+# MyOS Guard Dog 5.0 release candidate
 
 VirusTotal requests are paced within each process, including retries and refreshes.
 Separate processes or other software sharing the same API key can still exhaust its
 quota. Rate limits leave coverage incomplete; they never turn into a clean result.
 
 MyOS Guard Dog checks software packages before installation and rechecks your projects against current security information. Its only supported command is `myos-guard-dog`. It is not affiliated with DataDog GuardDog or other similarly named packages. The official source is [josephtandle/myos-guard-dog](https://github.com/josephtandle/myos-guard-dog).
+
+## Local workspace scanner, release candidate
+
+This candidate adds `myos-guard-dog workspace "/your/project" --json` for local files. It checks 28 native patterns across secrets, source code, CI, containers, TLS and coding-agent configuration. Rules carry severity, confidence and a concrete next action. They are text heuristics, not full semantic analysis.
+
+```sh
+myos-guard-dog workspace "/your/project"
+myos-guard-dog workspace "/your/project" --sarif --output workspace.sarif
+myos-guard-dog workspace "/your/project" --write-baseline workspace-baseline.json
+myos-guard-dog workspace "/your/project" --baseline workspace-baseline.json --json
+myos-guard-dog workspace "/your/project" --clamav /absolute/path/to/clamscan --json
+myos-guard-dog updates enable --workspace "/your/project" --time 02:30 --files
+```
+
+The local scan makes no network requests and executes no project code. It includes hidden coding configuration and UTF-8/UTF-16 text, rejects symlinks and special files, and records skipped or unreadable files. Default limits are 20,000 files, 50,000 entries, 1 MiB per file, 128 MiB total, depth 30, 60 seconds and 2,000 findings. `--include-dependencies` includes node_modules and vendor; otherwise dependencies, build output and Git internals are explicitly outside the native scan scope. Binary content receives only the native antivirus test-marker check. Use a stable checkout: this is an on-demand scanner, not a security boundary against concurrent hostile filesystem mutation.
+
+JSON and SARIF contain locations, fingerprints and remediation, never matching credential values or raw engine output. Treat report paths and metadata as private. Baselines annotate known findings without hiding them or allowing them through a security gate. Moving identical evidence keeps its identity; changing a detected credential produces a new identity. Reports and baselines use new filenames and mode 0600; existing destinations are never overwritten.
+
+`--fail-on high` is the default. Critical/high findings exit 1 even with incomplete coverage. Lower findings remain visible; `--fail-on medium` or `low` makes them fail CI too. Missing coverage without a failing finding exits 2. Exit 0 means the requested checks completed within the declared scope without findings at the chosen threshold, not that the project is safe.
+
+ClamAV is optional and must already be installed from a trusted source. Supply its absolute executable path outside the scanned tree. GuardDog does not install the engine, download signatures, quarantine files or delete findings. The adapter checks database age and reports stale, missing, failed or bounded coverage as incomplete. ClamAV and its databases retain their separate licenses. `--files` nightly scanning runs native checks before package audits; it does not enable ClamAV automatically.
+
+This candidate has not yet passed the live-engine and All Sorted release gates. See `WORKSPACE-SECURITY.md` for supported coverage and release requirements. The stable install command below remains pinned to the previous release until this candidate is published.
 
 ## Install with your AI assistant
 
@@ -94,7 +117,7 @@ The computer must be available for its scheduler. Use `myos-guard-dog updates di
 
 ## Scope and verification
 
-Guard Dog protects the package workflow. It is not a replacement for operating-system antivirus and does not watch every file or process. Regular `analyze` and `scan` pattern checks read registry description text; `artifact` and guarded `install` now additionally read bounded npm archive source bytes. This static inspection does not execute code, perform a sandboxed behavioral analysis, or cover every obfuscation technique. The CLI queries OSV, registry metadata, GitHub metadata when linked, and optional VirusTotal reports; it does not query NVD or CISA KEV or run name-similarity detection. SILENT describes only those completed checks. No scan guarantees software is harmless. For PyPI releases with multiple distributions, provide the SHA-256 of the exact wheel or source archive to check; without one, artifact coverage is incomplete.
+Guard Dog protects package workflows and selected coding workspaces. It is not a replacement for operating-system antivirus and does not watch every file or process. Regular `analyze` and `scan` pattern checks read registry description text; `artifact` and guarded `install` now additionally read bounded npm archive source bytes. This static inspection does not execute code, perform a sandboxed behavioral analysis, or cover every obfuscation technique. The CLI queries OSV, registry metadata, GitHub metadata when linked, and optional VirusTotal reports; it does not query NVD or CISA KEV or run name-similarity detection. SILENT describes only those completed checks. No scan guarantees software is harmless. For PyPI releases with multiple distributions, provide the SHA-256 of the exact wheel or source archive to check; without one, artifact coverage is incomplete.
 
 `npm test` runs regression and real packed-install tests. CI runs these on Windows, macOS and Linux with Node 24. Scheduler tests exercise platform command construction and readback without installing real tasks. `npm run test:live` separately exercises public services and may consume API quota. See the release verification record for actual platform results.
 
