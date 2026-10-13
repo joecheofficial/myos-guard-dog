@@ -30,4 +30,4 @@ No root privilege, new service, telemetry or automatic engine download is introd
 - Packaging: Node 22/24 installed-command checks and 4.1.0 upgrade, removal and rollback preserved custom state. Stable distribution artifacts must be checked again after version finalization.
 - Detection corpus: 28 seeded positive cases and 28 benign cases pass. Four of eight additional syntax/coverage probes detect; aliases, bracket-access dataflow, binary secrets and arbitrary reverse shells remain outside demonstrated coverage. This small known regression corpus is not a production efficacy benchmark.
 
-Source release: 5.0.0. All Sorted distribution remains a separate owner-controlled gate requiring its privacy/build/index checks and an installed runtime receipt. A source release alone is not proof of that deployment.
+Source release: 5.0.1. All Sorted distribution remains a separate owner-controlled gate requiring its privacy/build/index checks and an installed runtime receipt. A source release alone is not proof of that deployment.

@@ -1,6 +1,6 @@
 {
   "name": "myos-guard-dog",
-  "version": "5.0.0",
+  "version": "5.0.1",
   "description": "Local workspace security scanning, exact package advisories, bounded npm artifact inspection and guarded installs",
   "main": "src/index.js",
   "type": "module",
