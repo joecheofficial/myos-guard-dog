@@ -1,3 +1,9 @@
+# Unreleased: customer report fixes
+
+- VirusTotal requests refuse HTTP redirects, so the x-apikey header can never be forwarded to another host.
+- GitHub issue search uses the repository's canonical name (renamed repositories), validated as a plain owner/repo before it enters the search query. Legacy owners ending in a hyphen are accepted.
+- Guarded install accepts exactly two reviewed override shapes that All Sorted ships (Mission Control's postcss pin, the WhatsApp server's Baileys/qs pins). Every locked package is still origin-, integrity- and scan-checked; every other override is refused, including a null or empty one.
+
 # Workspace scanner: 5.0.0
 
 - Adds an offline workspace command with 28 original rules for secrets, suspicious source patterns, development configuration, CI and agent permissions.

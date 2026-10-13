@@ -18,6 +18,36 @@ function validateSpec(spec) {
   }
 }
 
+const isPlainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const hasExactKeys = (value, keys) => isPlainObject(value) &&
+  Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+
+// Overrides only steer npm's resolution. Every package in the resulting lock is
+// still origin-, integrity- and scan-checked below, but an override can point at
+// anything, so only the exact shapes All Sorted itself ships are accepted:
+// Mission Control pins transitive postcss to its direct postcss, and the
+// WhatsApp server pins Baileys' link-preview-js to its own and raises qs.
+function isReviewedOverrideShape(manifest) {
+  const overrides = manifest.overrides;
+  const direct = name => ['dependencies', 'devDependencies']
+    .filter(field => Object.hasOwn(manifest[field] || {}, name))
+    .map(field => manifest[field][name]);
+  const directSelectors = name => {
+    const selectors = direct(name);
+    return selectors.length > 0 && selectors.every(selector => typeof selector === 'string' && SELECTOR.test(selector));
+  };
+  const missionControl = hasExactKeys(overrides, ['postcss']) &&
+    overrides.postcss === '$postcss' && directSelectors('postcss');
+  const whatsApp = hasExactKeys(overrides, ['@whiskeysockets/baileys', 'qs']) &&
+    hasExactKeys(overrides['@whiskeysockets/baileys'], ['link-preview-js']) &&
+    overrides['@whiskeysockets/baileys']['link-preview-js'] === '$link-preview-js' &&
+    overrides.qs === '^6.15.4' &&
+    manifest.dependencies?.['@whiskeysockets/baileys'] === '7.0.0-rc14' &&
+    typeof manifest.dependencies?.['link-preview-js'] === 'string' &&
+    SELECTOR.test(manifest.dependencies['link-preview-js']);
+  return missionControl || whatsApp;
+}
+
 function readProjectFile(path) {
   if (!existsSync(path)) return null;
   if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) throw new Error(`Expected an ordinary project file: ${path}`);
@@ -85,8 +115,11 @@ export async function runGuardedInstall(args, GuardDogClass, options = {}) {
   const before = paths.map(readProjectFile);
   if (before[2] !== null) throw new Error('Guarded install does not support npm-shrinkwrap.json yet. No changes made.');
   const manifest = before[0] === null ? { name: 'guardog-project', version: '1.0.0', private: true } : JSON.parse(before[0]);
-  if (manifest.workspaces || manifest.overrides || manifest.bundledDependencies || manifest.bundleDependencies) {
+  if (manifest.workspaces || manifest.bundledDependencies || manifest.bundleDependencies) {
     throw new Error('Workspaces, overrides and bundled dependencies require a separate reviewed install. No changes made.');
+  }
+  if (Object.hasOwn(manifest, 'overrides') && !isReviewedOverrideShape(manifest)) {
+    throw new Error('Workspaces, overrides and bundled dependencies require a separate reviewed install. Only the reviewed Mission Control (postcss) and WhatsApp server override shapes are accepted. No changes made.');
   }
   for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
     for (const [name, version] of Object.entries(manifest[field] || {})) validateSpec(`${name}@${version}`);
