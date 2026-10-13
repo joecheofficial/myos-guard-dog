@@ -36,7 +36,7 @@ Use the [installation prompt](GUARD_DOG_PROMPT.md). It guides your assistant thr
 For a terminal installation on macOS, Windows, or Linux, use Node 22 or Node 24 LTS. Other major versions are rejected so local installs, CI and support all exercise the same runtime:
 
 ```sh
-npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.0.0
+npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.0.1
 myos-guard-dog setup
 myos-guard-dog test
 myos-guard-dog scan "/your/project"
@@ -47,7 +47,7 @@ On Windows, substitute a quoted Windows folder such as `"C:\Users\You\Projects"`
 
 State lives in `~/.guardog` or `%USERPROFILE%\.guardog`, independently of the installation directory. `GUARDOG_HOME` selects another state folder. Upgrades preserve this state.
 
-Use the v5.0.0 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
+Use the v5.0.1 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
 
 ## A keyless first check
 

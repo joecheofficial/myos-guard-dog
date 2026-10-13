@@ -46,7 +46,9 @@ export class VirusTotalScanner {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.timeout);
       try {
-        const response = await this.fetch(url, { ...options, signal: controller.signal });
+        // The key travels in a custom x-apikey header, which fetch would forward
+        // to any redirect target. VirusTotal's API never needs a redirect.
+        const response = await this.fetch(url, { ...options, redirect: 'error', signal: controller.signal });
         // Consume the body within the same timeout, before releasing the queue.
         const data = response.ok ? await response.json() : null;
         return { response, data };

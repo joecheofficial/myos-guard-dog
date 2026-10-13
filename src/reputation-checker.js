@@ -3,6 +3,8 @@
  * Queries npm/PyPI/GitHub for package metadata and reputation signals
  */
 
+const GITHUB_FULL_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.-]{1,100}$/;
+
 export class ReputationChecker {
   constructor(config) {
     this.config = config.reputation;
@@ -252,10 +254,19 @@ export class ReputationChecker {
 
       const data = await response.json();
 
+      // GitHub follows repository renames for metadata, but issue search needs
+      // the canonical name. It goes into a search query, so it must be a plain
+      // owner/repo (legacy owners may end in a hyphen) and nothing more.
+      const canonicalRepo = data.full_name;
+      if (typeof canonicalRepo !== 'string' || !GITHUB_FULL_NAME.test(canonicalRepo)
+          || ['.', '..'].includes(canonicalRepo.split('/')[1])) {
+        throw new Error('GitHub returned an invalid canonical repository name');
+      }
+
       // Unverified open reports are weak evidence, not a malware verdict.
       let issuesData = { total_count: null };
       try {
-        const query = `repo:${data.full_name || `${owner}/${repoName}`} is:issue is:open malware in:title`;
+        const query = `repo:${canonicalRepo} is:issue is:open malware in:title`;
         const issuesResponse = await fetch(
           `${this.config.github.apiUrl}/search/issues?q=${encodeURIComponent(query)}`,
           { signal: controller.signal, headers }
