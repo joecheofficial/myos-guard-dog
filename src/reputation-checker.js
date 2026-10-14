@@ -308,13 +308,18 @@ export class ReputationChecker {
    */
   parseRepository(repo) {
     if (!repo) return null;
-    
+
+    const normalize = value => value
+      .replace(/^git\+/, '')
+      .replace(/^git:\/\/github\.com\//, 'https://github.com/')
+      .replace(/\.git$/, '');
+
     if (typeof repo === 'string') {
-      return repo;
+      return normalize(repo);
     }
-    
+
     if (repo.url) {
-      return repo.url.replace(/^git\+/, '').replace(/\.git$/, '');
+      return normalize(repo.url);
     }
     
     // PyPI project_urls
