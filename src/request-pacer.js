@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { mkdirSync, readFileSync, writeFileSync, renameSync, openSync, closeSync, fsyncSync, fstatSync, lstatSync, constants } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, renameSync, openSync, closeSync, fsyncSync, fstatSync, lstatSync, unlinkSync, constants } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { guardogDataDir } from './paths.js';
 import { cacheDigest } from './scan-cache.js';
@@ -32,15 +32,21 @@ export function createRequestPacer(identity,{directory=join(guardogDataDir(),'re
           if(!Number.isFinite(next)||next<0||next>now()+90000)throw Error('Invalid request pacing state');
         } catch(error) {if(error.code!=='ENOENT')throw error;}
         if(next>now())await wait(next-now());
-        const temporary=path+'.'+randomUUID()+'.tmp';
-        const output=openSync(temporary,'wx',0o600);
-        try {writeFileSync(output,JSON.stringify({next:now()+interval}));fsyncSync(output);}finally{closeSync(output);}
-        renameSync(temporary,path);
-        if(process.platform!=='win32') {
-          const parent=openSync(directory,constants.O_RDONLY);
-          try {fsyncSync(parent);}catch(error){if(!['EINVAL','ENOTSUP'].includes(error.code))throw error;}finally{closeSync(parent);}
+        function persistReservation() {
+          const temporary=path+'.'+randomUUID()+'.tmp';
+          try {
+            const output=openSync(temporary,'wx',0o600);
+            try {writeFileSync(output,JSON.stringify({next:now()+interval}));fsyncSync(output);}finally{closeSync(output);}
+            renameSync(temporary,path);
+            if(process.platform!=='win32') {
+              const parent=openSync(directory,constants.O_RDONLY);
+              try {fsyncSync(parent);}catch(error){if(!['EINVAL','ENOTSUP'].includes(error.code))throw error;}finally{closeSync(parent);}
+            }
+          } finally {try{unlinkSync(temporary);}catch{/* renamed or never created */}}
         }
-        return await request();
+        persistReservation();
+        // Completion-based spacing includes any delay writing the first reservation.
+        try {return await request();}finally{persistReservation();}
       } finally {release();}
     });
     tail=pending.catch(()=>{});return pending;
