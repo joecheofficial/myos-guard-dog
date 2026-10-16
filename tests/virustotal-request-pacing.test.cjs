@@ -141,3 +141,16 @@ test('audit and direct scanner processes share the production VT pacing ledger',
   assert.equal(Number(first.stdout.trim()),1000);assert.equal(Number(second.stdout.trim()),17000);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
+
+test('corrupt or symlinked pacing state never permits a request',async t=>{
+ const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'gd-pacer-corrupt-'));
+ try {
+  const {createRequestPacer}=await import('../src/request-pacer.js');const {cacheDigest}=await import('../src/scan-cache.js');
+  const file=path.join(root,cacheDigest('state-test')+'.json'),pace=createRequestPacer('state-test',{directory:root});let called=false;
+  fs.writeFileSync(file,'broken',{mode:0o600});await assert.rejects(pace(120,()=>{called=true;}));assert.equal(called,false);
+  fs.unlinkSync(file);const target=path.join(root,'target.json');fs.writeFileSync(target,'{"next":0}',{mode:0o600});
+  try{fs.symlinkSync(target,file);}catch(error){if(error.code==='EPERM'){t.diagnostic('Host does not permit file symlink fixture');return;}throw error;}
+  await assert.rejects(pace(120,()=>{called=true;}),/Unsafe/);assert.equal(called,false);assert.equal(fs.readFileSync(target,'utf8'),'{"next":0}');
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});

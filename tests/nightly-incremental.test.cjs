@@ -22,7 +22,7 @@ test('all 2124 dependencies across five projects get advisories before quota-lim
   assert.equal(result.advisoryCheckedCount,2124);assert.equal(result.dependencyCount,2124);
   assert.equal(result.phases.advisories,'complete');assert.equal(result.phases.enrichment,'incomplete');
   assert.equal(result.dangerousCount,1);assert.equal(result.exitCode,1);
-  assert.ok(result.findings.some(f=>f.packageName==='pkg-2123'&&f.project.endsWith('project4/package.json')&&f.advisoryIds.includes('MAL-test-critical')));
+  assert.ok(result.findings.some(f=>f.packageName==='pkg-2123'&&f.project.endsWith(path.join('project4','package.json'))&&f.advisoryIds.includes('MAL-test-critical')));
  }finally{if(previous===undefined)delete process.env.GUARDOG_HOME;else process.env.GUARDOG_HOME=previous;fs.rmSync(root,{recursive:true,force:true});}
 });
 
