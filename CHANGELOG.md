@@ -1,3 +1,11 @@
+# Student setup and naming corrections: 5.0.2
+
+- Use MyOS Guard Dog consistently in current product documentation. Keep third-party names and existing code identifiers distinct.
+- Explain why `.guardog` and `GUARDOG_HOME` remain unchanged for existing settings, credentials and schedules.
+- Fix the shell installer and student setup instructions to accept both supported Node versions, 22 and 24. Unsupported majors still stop before npm runs.
+- Include the local workspace scan in student setup instructions and distinguish it from the dependency audit.
+- Document `myos-guard-dog-scan` as the bundled helper; keep `myos-guard-dog` as the main command.
+
 # Customer report security fixes: 5.0.1
 
 These three fixes come from an All Sorted customer report.

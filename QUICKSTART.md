@@ -1,20 +1,23 @@
-# Guard Dog quick start
+# MyOS Guard Dog quick start
 
 Use [the installation prompt](GUARD_DOG_PROMPT.md) to have your assistant complete setup and verify it.
 
-With Node 24 LTS installed:
+With Node 22 or Node 24 LTS installed:
 
 ```sh
-npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.0.1
+npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.0.2
 myos-guard-dog setup
 myos-guard-dog test
+myos-guard-dog workspace "/your/project"
 myos-guard-dog scan "/your/project"
 myos-guard-dog updates enable --workspace "/your/workspace" --time "02:30"
 myos-guard-dog nightly
 myos-guard-dog doctor --repair
 ```
 
-Use the v5.0.1 GitHub tag only after verifying it has been published. Check the installed version before scanning student projects.
+Use the v5.0.2 GitHub tag only after verifying it has been published. Check the installed version before scanning student projects.
+
+The `workspace` command checks local project files without network access. The `scan` command audits package dependencies using external security information.
 
 Start with a keyless, read-only check of an exact public npm release:
 

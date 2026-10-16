@@ -1,10 +1,10 @@
-# MyOS Guard Dog 5.0
+# MyOS Guard Dog 5.0.2
 
 VirusTotal requests are paced within each process, including retries and refreshes.
 Separate processes or other software sharing the same API key can still exhaust its
 quota. Rate limits leave coverage incomplete; they never turn into a clean result.
 
-MyOS Guard Dog checks software packages before installation and rechecks your projects against current security information. Its only supported command is `myos-guard-dog`. It is not affiliated with DataDog GuardDog or other similarly named packages. The official source is [josephtandle/myos-guard-dog](https://github.com/josephtandle/myos-guard-dog).
+MyOS Guard Dog checks software packages before installation and rechecks your projects against current security information. Its main command is `myos-guard-dog`; `myos-guard-dog-scan` is the bundled dependency-audit helper. It is not affiliated with DataDog GuardDog or other similarly named packages. The official source is [josephtandle/myos-guard-dog](https://github.com/josephtandle/myos-guard-dog).
 
 ## Local workspace scanner
 
@@ -25,7 +25,7 @@ JSON and SARIF contain locations, fingerprints and remediation, never matching c
 
 `--fail-on high` is the default. Critical/high findings exit 1 even with incomplete coverage. Lower findings remain visible; `--fail-on medium` or `low` makes them fail CI too. Missing coverage without a failing finding exits 2. Exit 0 means the requested checks completed within the declared scope without findings at the chosen threshold, not that the project is safe.
 
-ClamAV is optional and must already be installed from a trusted source. Supply its absolute executable path outside the scanned tree. GuardDog does not install the engine, download signatures, quarantine files or delete findings. The adapter checks database age and reports stale, missing, failed or bounded coverage as incomplete. ClamAV and its databases retain their separate licenses. `--files` nightly scanning runs native checks before package audits; it does not enable ClamAV automatically.
+ClamAV is optional and must already be installed from a trusted source. Supply its absolute executable path outside the scanned tree. Guard Dog does not install the engine, download signatures, quarantine files or delete findings. The adapter checks database age and reports stale, missing, failed or bounded coverage as incomplete. ClamAV and its databases retain their separate licenses. `--files` nightly scanning runs native checks before package audits; it does not enable ClamAV automatically.
 
 The native scanner passed Node 22/24 CI on macOS, Windows and Linux. The optional ClamAV adapter passed ten live probes on Linux with ClamAV 1.5.4; live macOS and Windows ClamAV validation is not claimed. See `WORKSPACE-SECURITY.md` for evidence, supported coverage and distribution requirements. All Sorted uses its own module release and installed-runtime verification.
 
@@ -36,7 +36,7 @@ Use the [installation prompt](GUARD_DOG_PROMPT.md). It guides your assistant thr
 For a terminal installation on macOS, Windows, or Linux, use Node 22 or Node 24 LTS. Other major versions are rejected so local installs, CI and support all exercise the same runtime:
 
 ```sh
-npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.0.1
+npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.0.2
 myos-guard-dog setup
 myos-guard-dog test
 myos-guard-dog scan "/your/project"
@@ -45,9 +45,9 @@ myos-guard-dog doctor --repair
 
 On Windows, substitute a quoted Windows folder such as `"C:\Users\You\Projects"`. All Sorted users should use the matching module installer instead of creating a second installation.
 
-State lives in `~/.guardog` or `%USERPROFILE%\.guardog`, independently of the installation directory. `GUARDOG_HOME` selects another state folder. Upgrades preserve this state.
+State lives in `~/.guardog` or `%USERPROFILE%\.guardog`, independently of the installation directory. `GUARDOG_HOME` selects another state folder. These legacy state names are intentional compatibility identifiers, not commands or product names. Do not rename them: upgrades reuse them to preserve settings, credentials and schedules.
 
-Use the v5.0.1 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
+Use the v5.0.2 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
 
 ## A keyless first check
 

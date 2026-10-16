@@ -1,10 +1,10 @@
-# MyOS Guard Dog 5.0 operations
+# MyOS Guard Dog 5.0.2 operations
 
 Guard Dog protects supported package workflows, not the entire operating system.
 
 ## Local state
 
-State is stored in `GUARDOG_HOME`, or `~/.guardog` by default.
+State is stored in `GUARDOG_HOME`, or `~/.guardog` by default. These legacy names are preserved for upgrade compatibility; do not rename the folder or environment variable.
 
 - `config.json`: selected scan roots, schedule consent and local run time.
 - `.env`: local VirusTotal credential, never include it in reports.

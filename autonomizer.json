@@ -1,11 +1,11 @@
 {
-  "version": "5.0.1",
+  "version": "5.0.2",
   "agentId": "guard-dog",
-  "loopBoundary": "Read-only local workspace and package-security evidence, verdict drafting without enforcement, and GuardDog-owned local scan records.",
+  "loopBoundary": "Read-only local workspace and package-security evidence, verdict drafting without enforcement, and Guard Dog-owned local scan records.",
   "autonomousActions": [
     "Read-only workspace, dependency, package, CVE, reputation, pattern, and threat-intel scans",
     "Report or verdict drafting without enforcement",
-    "GuardDog-owned local cache and scan-history writes"
+    "Guard Dog-owned local cache and scan-history writes"
   ],
   "approvalRequiredActions": [
     "Approval required before adding any future external notification or message-send capability",
