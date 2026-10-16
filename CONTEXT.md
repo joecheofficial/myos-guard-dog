@@ -1,5 +1,5 @@
 # MyOS Guard Dog: Project Context
-> Last updated: 2026-10-03
+> Last updated: 2026-10-16
 
 ## What It Is
 
@@ -10,7 +10,7 @@ OSV advisory checks work without an API key. VirusTotal is optional for analysis
 ## URLs / Access
 
 - GitHub: https://github.com/josephtandle/myos-guard-dog
-- After verifying the v5.0.1 GitHub tag is published, install it with `npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.0.1 && myos-guard-dog setup --quick`. Verify the installed version before use.
+- After verifying the v5.0.2 GitHub tag is published, install it with `npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.0.2 && myos-guard-dog setup --quick`. Verify the installed version before use.
 
 ## App Location
 
@@ -20,7 +20,7 @@ OSV advisory checks work without an API key. VirusTotal is optional for analysis
 
 ## Tech Stack
 
-- Node.js 24 LTS, pinned with `.nvmrc`, `.node-version` and `engines.node` (ESM, built-in fetch, zero runtime dependencies)
+- Node.js 22 and 24 supported; Node 24 pinned with `.nvmrc` and `.node-version` (ESM, built-in fetch, zero runtime dependencies)
 - No build step. No server. CLI tool only.
 - Optional Claude Code skill: `myos-guard-dog.md`
 
@@ -59,7 +59,7 @@ clean". A check that fails must produce a named, scored signal, not an absence.
 ## Known Issues / Next Steps
 
 - Set `GITHUB_API_TOKEN`. Unauthenticated GitHub allows only 60 requests/hour, and that quota is
-  shared across every scan. Without it, GuardDog reports "GitHub could not be checked" rather than
+  shared across every scan. Without it, Guard Dog reports "GitHub could not be checked" rather than
   a clean result, but the reputation signal is genuinely unavailable. With it, 5000/hour.
 - Telegram alerting was REMOVED in v1.2.0 to make the package standalone-safe. The BARK branch
   prints its banner and sends nothing.

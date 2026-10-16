@@ -1,7 +1,7 @@
 # MyOS Guard Dog skill
 
 Use MyOS Guard Dog before installing npm dependencies and for recurring exact-version audits.
-Official project: https://github.com/josephtandle/myos-guard-dog. The only supported CLI is `myos-guard-dog`.
+Official project: https://github.com/josephtandle/myos-guard-dog. The main command is `myos-guard-dog`; `myos-guard-dog-scan` is its bundled dependency-audit helper.
 
 1. Locate the installed command using the platform's command discovery, then run `myos-guard-dog --version` and `myos-guard-dog doctor`.
 2. If missing or unhealthy, follow `GUARD_DOG_PROMPT.md`. Use `doctor --repair` for bounded supported repairs and verify the result.

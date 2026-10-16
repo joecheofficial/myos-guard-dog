@@ -1,8 +1,8 @@
-# GuardDog protection evaluation (2026-10-03)
+# Guard Dog protection evaluation (2026-10-03)
 
 This review targets a student who wants to inspect a public npm package before installing it and to audit an existing project without being told that missing evidence is safe. It compares design ideas from maintained projects; no external scanner code was copied into this repository.
 
-| Project | Useful design evidence | GuardDog decision |
+| Project | Useful design evidence | Guard Dog decision |
 | --- | --- | --- |
 | [DataDog GuardDog](https://github.com/DataDog/guarddog) | Downloads package artifacts, combines metadata with source indicators, and uses a sandbox for extraction and analysis. | Add a narrow, bounded, no-extraction npm artifact inspection path. Do not claim YARA parity, behavioral coverage, or sandbox equivalence. |
 | [OSV-Scanner](https://github.com/google/osv-scanner) | Scans many lockfile types, supports offline databases and offers guided remediation with a warning about running package managers on untrusted projects. | Keep exact-version OSV queries. Multi-ecosystem project inventory and offline OSV data remain future work. Do not auto-run remediation in student projects. |
@@ -20,10 +20,10 @@ This review targets a student who wants to inspect a public npm package before i
 ## What remains and why it matters
 
 - The new source rules catch selected combinations, not arbitrary malicious code. Binary payloads, split-file behavior, novel obfuscation and runtime behavior remain outside the check. The archive parser itself adds attack surface, so independent review and cross-platform tests are release gates.
-- A VirusTotal key and fresh exact-file report are still required for a GuardDog-guarded install. The keyless `artifact` command gives students useful evidence but does not replace that gate.
-- Project inventory is npm-only. Python students should use a dedicated Python dependency auditor; GuardDog's single PyPI analysis is not a full environment audit.
+- A VirusTotal key and fresh exact-file report are still required for a Guard Dog-guarded install. The keyless `artifact` command gives students useful evidence but does not replace that gate.
+- Project inventory is npm-only. Python students should use a dedicated Python dependency auditor; Guard Dog's single PyPI analysis is not a full environment audit.
 - Large dependency scans are bounded to four concurrent packages, but shared VirusTotal rate limits can dominate total time. No end-to-end speedup is promised for a 453-package project.
-- A source archive can have no listed indicators while still be malicious. GuardDog must keep reporting the evidence actually checked and cannot certify safety.
+- A source archive can have no listed indicators while still be malicious. Guard Dog must keep reporting the evidence actually checked and cannot certify safety.
 
 ## Release verification evidence
 
