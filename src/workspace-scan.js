@@ -1,6 +1,7 @@
 import { lstatSync, realpathSync, opendirSync, openSync, readSync, fstatSync, closeSync, constants } from 'node:fs';
 import { resolve, join, relative, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
+import { EvidenceCache } from './scan-cache.js';
 import { inspectText, isTextPath, RULESET_VERSION } from './workspace-rules.js';
 
 const DEFAULTS = {maxFiles:20000,maxEntries:50000,maxFileBytes:1024*1024,maxTotalBytes:128*1024*1024,maxDepth:30,timeoutMs:60000,maxFindings:2000};
@@ -16,8 +17,9 @@ export function scanWorkspace(input, options = {}) {
     if(!Number.isSafeInteger(limits[key]) || limits[key]<1 || limits[key]>CEILINGS[key]) throw new Error('Invalid workspace scan limit: '+key);
   }
   const started=Date.now(), findings=[], issues=[];
+  const cache=options.cache===false?null:new EvidenceCache({directory:options.cacheDir,namespace:['native',RULESET_VERSION]});
   const scope={excludedDirectories:EXCLUDED.filter(x=>!options.includeDependencies||!['node_modules','vendor'].includes(x)),includesHiddenConfiguration:true,symlinks:'never followed',binaryAnalysis:'native test signature only; use ClamAV for malware signatures',network:false,projectExecution:false};
-  const coverage={complete:true,filesScanned:0,textFiles:0,binaryFiles:0,bytesRead:0,entriesVisited:0,excludedDirectories:0,skippedFiles:0,limits};
+  const coverage={complete:true,filesScanned:0,filesAnalyzed:0,filesReused:0,textFiles:0,binaryFiles:0,bytesRead:0,entriesVisited:0,excludedDirectories:0,skippedFiles:0,limits};
   const report={schemaVersion:1,rulesetVersion:RULESET_VERSION,startedAt:new Date(started).toISOString(),status:'incomplete',exitCode:2,scope,coverage,engines:[{id:'native',status:'complete'}],findings,issues};
   const issue=(code,path)=>{coverage.complete=false;if(issues.length<100)issues.push({code,...(path?{path}: {})});};
   let root;
@@ -81,7 +83,14 @@ export function scanWorkspace(input, options = {}) {
             coverage.binaryFiles++;
             if(isTextPath(name))issue('unsupported_text_encoding',name);
           } else coverage.textFiles++;
-          const result=inspectText(text,name,{binary,deadline:started+limits.timeoutMs});
+          const cacheKey=[root,name,createHash('sha256').update(content).digest('hex'),binary];
+          let result=cache?.get(cacheKey,24*60*60*1000);
+          if(result && Array.isArray(result.findings) && !result.timedOut && !result.truncated) coverage.filesReused++;
+          else {
+            result=inspectText(text,name,{binary,deadline:started+limits.timeoutMs});
+            coverage.filesAnalyzed++;
+            if(!result.timedOut && !result.truncated)cache?.set(cacheKey,result,24*60*60*1000);
+          }
           if(result.timedOut)issue('time_limit');
           if(result.truncated) issue('file_finding_limit',name);
           for(const finding of result.findings) {

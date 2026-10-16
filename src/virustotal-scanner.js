@@ -3,6 +3,7 @@
  * Scans packages for malicious code using VirusTotal API v3
  */
 
+import { createRequestPacer } from './request-pacer.js';
 import { VirusTotalQuota } from './virustotal-quota.js';
 
 // Share the request budget across every scanner using the same key in this process.
@@ -18,6 +19,7 @@ export class VirusTotalScanner {
     this.now = runtime.now || Date.now;
     this.wait = runtime.wait || (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
     this.fetch = runtime.fetch || ((...args) => globalThis.fetch(...args));
+    this.pace = runtime.pace || createRequestPacer(['vt',this.apiKey,this.baseUrl],{now:this.now,wait:this.wait});
     this.quota = runtime.quota || (Number.isInteger(config.virustotal.dailyRequestLimit)
       ? new VirusTotalQuota({ limit: config.virustotal.dailyRequestLimit })
       : null);
@@ -38,6 +40,7 @@ export class VirusTotalScanner {
       // Do not charge every remaining package another rate-limit wait.
       const quotaDay = new Date(this.now()).toISOString().slice(0, 10);
       if (queue.quotaBlockedDay === quotaDay) throw new Error('VirusTotal daily quota guard stopped this request before it was sent.');
+      return this.pace(REQUEST_INTERVAL_MS,async()=>{
       const delay = queue.nextAt - this.now();
       if (delay > 0) await this.wait(delay);
       queue.nextAt = this.now() + REQUEST_INTERVAL_MS;
@@ -62,6 +65,7 @@ export class VirusTotalScanner {
       } finally {
         clearTimeout(timeoutId);
       }
+      });
     });
     queue.tail = pending.then(() => undefined, () => undefined);
     return pending;

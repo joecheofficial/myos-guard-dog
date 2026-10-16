@@ -1,3 +1,13 @@
+# Incremental advisory-first scans: 5.1.0
+
+- Run a four-worker advisory sweep across all discovered projects before VirusTotal or GitHub enrichment. Share exact-version OSV evidence only within the current nightly run; every new run checks for newly published advisories.
+- Reuse local rule results by actual file bytes, path and scanner/ruleset version for up to 24 hours. Re-read/hash ignored and untracked files too. Preserve cached findings and all existing scope/resource limits. `workspace --no-cache` forces rule evaluation.
+- Add private, bounded, authenticated evidence caching: successful reputation and verified artifact-hash mappings for one hour; VirusTotal hash reports only while their original analysis remains fresh. Failed checks never certify coverage. Install gates remain uncached.
+- Deduplicate shared GitHub repositories, pace GitHub and VirusTotal across audit processes, and keep the existing daily VT quota guard. Work runs in local deterministic workers with no model API costs.
+- Preserve out-of-order worker checkpoints, prevent overlapping writes to a manifest cursor, and retry unfinished rows after interruption.
+- Include package names, exact versions, project paths and advisory IDs in nightly findings. Report advisory and enrichment coverage separately; retain advisories when enrichment is deferred or killed.
+- Share remaining enrichment time fairly between projects. Configure total budget with `GUARDOG_NIGHTLY_TIMEOUT_MS` or `nightlyTimeoutMs`; retain `GUARDOG_MANIFEST_TIMEOUT_MS` as a per-project cap. Explicit `scan --advisories-only` runs the fast phase without enrichment.
+
 # Resumable nightly scans: 5.0.3
 
 - Checkpoint dependency progress after every completed analysis. Nightly scans stop starting new checks before the per-project deadline and resume at the next dependency on the next run.

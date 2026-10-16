@@ -3,7 +3,9 @@ import { existsSync, readdirSync, realpathSync, statSync, writeFileSync, renameS
 import { join, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { collectDependencies } from '../src/dependency-inventory.js';
+import { mergeAuditPhases } from '../src/scan-summary.js';
 import { readScanProgress } from '../src/scan-progress.js';
 import { spawnSync } from 'node:child_process';
 import { ensureGuardogHome, guardogHome, packageRoot } from '../src/paths.js';
@@ -22,6 +24,16 @@ const COVERAGE_GAP = /^(No npm lockfile or installed dependency inventory is ava
 const homeOnlySkipDirs = new Set(['Library', 'Applications', 'Movies', 'Music', 'Pictures']);
 function realPathOrNull(target) {
   try { return realpathSync(target); } catch { return null; }
+}
+
+function validateCurrentInventory(summary,manifest) {
+  if(!summary.inventoryFingerprint)return summary; // Legacy callers have no current-run snapshot to reuse.
+  const inventory=collectDependencies(manifest);
+  const fingerprint=createHash('sha256').update(JSON.stringify(inventory)).digest('hex');
+  if(fingerprint===summary.inventoryFingerprint)return summary;
+  return {...summary,inventoryComplete:inventory.complete,dependencyCount:inventory.packages.length,advisoryCheckedCount:0,enrichmentCheckedCount:0,coverage:'incomplete',status:summary.dangerousCount?'dangerous':'incomplete',inventoryChanged:true,
+    findings:(summary.findings||[]).map(f=>({...f,inventoryChanged:true})),
+    issues:[...summary.issues,'Dependency inventory changed during the scan; recorded findings apply to the earlier snapshot and current coverage is incomplete.']};
 }
 
 export function runNightly(options = {}) {
@@ -48,7 +60,9 @@ export function runNightly(options = {}) {
 
 function performNightly(options) {
   const config = options.config || loadUserConfig();
-  const deadline = Date.now() + (options.timeoutMs ?? 3600000);
+  const totalBudget=Number(options.timeoutMs ?? process.env.GUARDOG_NIGHTLY_TIMEOUT_MS ?? config.nightlyTimeoutMs ?? 3600000);
+  if(!Number.isSafeInteger(totalBudget)||totalBudget<0||totalBudget>24*3600000)throw Error('Nightly budget must be 0 to 86400000 milliseconds.');
+  const deadline = Date.now() + totalBudget;
   // Explicit scan roots in config win. GUARDOG_WORKSPACE is the fallback for an
   // install that never chose roots (the legacy cron wrapper passes $HOME).
   const roots = options.roots || (config.scanRoots?.length ? config.scanRoots : process.env.GUARDOG_WORKSPACE ? [resolve(process.env.GUARDOG_WORKSPACE)] : []);
@@ -152,18 +166,38 @@ function performNightly(options) {
       if (start > 0) ordered = ordered.slice(start).concat(ordered.slice(0, start));
     } catch { /* no cursor yet: start at the beginning */ }
   }
+  const auditRunId=randomUUID(), advisorySummaries=new Map(), enriched=new Set();
+  receipt.findings=[]; receipt.inventoryComplete=true; receipt.advisoryCheckedCount=0; receipt.enrichmentCheckedCount=0;
+  if(options.advisoryFirst!==false) {
+    // Complete the fast advisory sweep across ALL projects before any VT enrichment.
+    const advisoryDeadline=Date.now()+Math.max(1,(deadline-Date.now())/2);
+    for(const [index,manifest] of ordered.entries()) {
+      const remaining=advisoryDeadline-Date.now();
+      if(remaining<=0){receipt.issues.push('Advisory sweep time budget exhausted.');break;}
+      const timeout=Math.max(1,Math.floor(remaining/(ordered.length-index)));
+      const result=run(process.execPath,[join(packageRoot(),'bin','scan-deps.js'),manifest,'--json','--advisories-only','--audit-run-id',auditRunId,'--budget-ms',String(Math.max(1,timeout-Math.min(15000,timeout/2)))],{encoding:'utf8',timeout,killSignal:'SIGKILL',maxBuffer:8*1024*1024,windowsHide:true});
+      try {
+        const summary=result.error||result.signal?readScanProgress(manifest+'.advisories',join(guardogHome(),'data'),auditRunId):JSON.parse(result.stdout);
+        if(!summary||!Number.isInteger(summary.dependencyCount)||summary.dependencyCount<0||!Number.isInteger(summary.advisoryCheckedCount))throw Error('Missing advisory receipt');
+        advisorySummaries.set(manifest,summary);
+        if(summary.advisoryCheckedCount<summary.dependencyCount)receipt.issues.push('Incomplete advisory sweep: '+manifest);
+      } catch {receipt.issues.push('Advisory sweep failed: '+manifest);}
+      if(['ENOENT','EACCES','ENOEXEC'].includes(result.error?.code)){receipt.runnerFailure=result.error.code;receipt.issues.push('Node scan runner unavailable. Run myos-guard-dog doctor --repair.');break;}
+    }
+  }
   let lastDone = null;
   for (const [index, manifest] of ordered.entries()) {
+    if(receipt.runnerFailure)break;
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
       if (partialOk) { deferred.push(...ordered.slice(index)); } else receipt.issues.push('Nightly scan time budget exhausted.');
       break;
     }
-    const timeout = Number.isFinite(manifestTimeoutMs) && manifestTimeoutMs > 0 ? Math.min(remaining, manifestTimeoutMs) : remaining;
+    const timeout = Number.isFinite(manifestTimeoutMs) && manifestTimeoutMs > 0 ? Math.min(remaining, manifestTimeoutMs, Math.max(1,Math.floor(remaining/(ordered.length-index)))) : remaining;
     const runId = randomUUID();
     // Leave room for an in-flight registry/VT/OSV check to finish and checkpoint.
     const budgetMs = Math.max(1, timeout - Math.min(120000, timeout / 2));
-    const result = run(process.execPath, [join(packageRoot(), 'bin', 'scan-deps.js'), manifest, '--json', '--budget-ms', String(budgetMs), '--run-id', runId], { encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024, windowsHide: true });
+    const result = run(process.execPath, [join(packageRoot(), 'bin', 'scan-deps.js'), manifest, '--json', '--budget-ms', String(budgetMs), '--run-id', runId, '--enrichment-only', '--audit-run-id', auditRunId], { encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024, windowsHide: true });
     receipt.projectsScanned++;
     if (['ENOENT', 'EACCES', 'ENOEXEC'].includes(result.error?.code)) {
       receipt.runnerFailure = result.error.code;
@@ -179,8 +213,13 @@ function performNightly(options) {
       if (!recovered) { if (partialOk) { deferred.push(manifest); lastDone = manifest; } continue; }
     }
     try {
-      const summary = recovered || JSON.parse(result.stdout);
+      const summary = validateCurrentInventory(mergeAuditPhases(advisorySummaries.get(manifest), recovered || JSON.parse(result.stdout)),manifest);
       if (!Number.isInteger(summary.dependencyCount) || summary.dependencyCount < 0 || !['complete', 'dangerous', 'suspicious', 'incomplete'].includes(summary.status)) throw new Error('invalid scan summary');
+      enriched.add(manifest);
+      receipt.inventoryComplete &&= summary.inventoryComplete!==false;
+      receipt.advisoryCheckedCount+=summary.advisoryCheckedCount||0;
+      receipt.enrichmentCheckedCount+=summary.enrichmentCheckedCount||0;
+      receipt.findings.push(...(summary.findings||[]).map(f=>({...f,project:manifest})));
       receipt.dependencyCount += summary.dependencyCount;
       receipt.scannedDependencyCount = (receipt.scannedDependencyCount || 0) + (summary.scannedDependencyCount ?? summary.dependencyCount);
       if (summary.deferredDependencyCount > 0) receipt.coverage.deferredDependencies = (receipt.coverage.deferredDependencies || 0) + summary.deferredDependencyCount;
@@ -197,7 +236,7 @@ function performNightly(options) {
       // A manifest that already found danger is never deferred: its findings count tonight.
       const foundDanger = ['dangerous', 'suspicious'].includes(summary.status) || (Number(summary.dangerousCount) || 0) > 0 || (Number(summary.suspiciousCount) || 0) > 0;
       if (partialOk && summary.quotaExhausted === true && !foundDanger) {
-        receipt.dependencyCount -= summary.dependencyCount;
+        if(!advisorySummaries.has(manifest))receipt.dependencyCount -= summary.dependencyCount;
         deferred.push(...ordered.slice(index));
         break;
       }
@@ -226,6 +265,19 @@ function performNightly(options) {
       }
     } catch { receipt.issues.push('Scan failed for ' + manifest + ': ' + (result.error?.message || result.stderr || 'missing scan summary')); }
   }
+  for(const [manifest,savedSummary] of advisorySummaries) {
+    if(enriched.has(manifest))continue;
+    const summary=validateCurrentInventory(savedSummary,manifest);
+    if(summary.inventoryChanged)receipt.issues.push(manifest+': dependency inventory changed after advisory sweep.');
+    receipt.inventoryComplete &&= summary.inventoryComplete!==false;
+    receipt.dependencyCount+=summary.dependencyCount;
+    receipt.advisoryCheckedCount+=summary.advisoryCheckedCount;
+    receipt.dangerousCount+=summary.dangerousCount||0;
+    receipt.suspiciousCount+=summary.suspiciousCount||0;
+    receipt.findings.push(...(summary.findings||[]).map(f=>({...f,project:manifest})));
+    receipt.issues.push('Enrichment deferred; advisory findings retained: '+manifest);
+  }
+  receipt.phases={advisories:receipt.inventoryComplete&&receipt.advisoryCheckedCount===receipt.dependencyCount&&receipt.dependencyCount>0?'complete':'incomplete',enrichment:receipt.inventoryComplete&&receipt.enrichmentCheckedCount===receipt.dependencyCount&&receipt.dependencyCount>0?'complete':'incomplete'};
   if (partialOk && incompleteOnly.length && completeManifests === 0) {
     receipt.issues.push('No manifest scanned completely this run (' + incompleteOnly.length + ' incomplete); treating as a failed night.');
   }
@@ -237,6 +289,7 @@ function performNightly(options) {
   if (receipt.dependencyCount === 0 && !(partialOk && deferred.length)) receipt.issues.push('No installed dependencies were scanned.');
   const workspaceDanger = receipt.workspace?.findings.some(f => ['critical', 'high'].includes(f.severity));
   receipt.status = workspaceDanger || receipt.dangerousCount > 0 ? 'dangerous' : receipt.issues.length ? 'incomplete' : receipt.suspiciousCount > 0 ? 'suspicious' : deferred.length ? 'partial' : 'complete';
+  receipt.executionStatus=receipt.runnerFailure||receipt.timeouts?'interrupted':receipt.budgetStops?'budget_exhausted':'finished';
   receipt.finishedAt = new Date().toISOString();
   receipt.exitCode = receipt.status === 'incomplete' || receipt.status === 'suspicious' ? 2 : receipt.status === 'dangerous' ? 1 : 0; // 'partial' (opt-in) exits 0
   const receiptPath = join(guardogHome(), 'data', 'last-nightly.json');

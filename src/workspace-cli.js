@@ -14,7 +14,8 @@ export function workspaceCommand(args) {
    if(flags.has(arg))throw Error('Duplicate workspace option');flags.add(arg);
    if(arg==='--json'||arg==='--sarif') {
     if(format!=='text')throw Error('Choose one report format');format=arg.slice(2);
-   } else if(arg==='--include-dependencies')options.includeDependencies=true;
+   } else if(arg==='--no-cache')options.cache=false;
+   else if(arg==='--include-dependencies')options.includeDependencies=true;
    else if(values.has(arg)) {
     const value=args[++i];if(!value||value.startsWith('--'))throw Error('Workspace option requires a value');
     if(numeric[arg])options[numeric[arg]]=Number(value);else extras[arg.slice(2)]=value;

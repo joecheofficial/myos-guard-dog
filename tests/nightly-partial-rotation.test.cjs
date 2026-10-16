@@ -21,7 +21,7 @@ test('partialNightlyOk: quota stop is deferred (exit 0), excludes are skipped, n
   const quota = { status: 2, stdout: JSON.stringify({ status: 'incomplete', dependencyCount: 1, dangerousCount: 0, quotaExhausted: true, issues: ['x: scan coverage incomplete; VirusTotal quota'] }) };
   try {
     const first = [];
-    let receipt = runNightly({ config, roots: [root], healthOptions: health, run: (_, args) => { first.push(path.basename(path.dirname(args[1]))); return path.basename(path.dirname(args[1])) === 'b' ? quota : ok; } });
+    let receipt = runNightly({ advisoryFirst: false, config, roots: [root], healthOptions: health, run: (_, args) => { first.push(path.basename(path.dirname(args[1]))); return path.basename(path.dirname(args[1])) === 'b' ? quota : ok; } });
     assert.deepEqual(first, ['a', 'b'], 'excluded tree is never scanned; scan stops at the quota');
     assert.deepEqual(receipt.issues, []);
     assert.equal(receipt.status, 'partial');
@@ -29,7 +29,7 @@ test('partialNightlyOk: quota stop is deferred (exit 0), excludes are skipped, n
     assert.equal(receipt.dependencyCount, 2);
     assert.equal(receipt.coverage.deferredManifests, 2);
     const second = [];
-    receipt = runNightly({ config, roots: [root], healthOptions: health, run: (_, args) => { second.push(path.basename(path.dirname(args[1]))); return ok; } });
+    receipt = runNightly({ advisoryFirst: false, config, roots: [root], healthOptions: health, run: (_, args) => { second.push(path.basename(path.dirname(args[1]))); return ok; } });
     assert.deepEqual(second, ['b', 'c', 'a'], 'resumes after the last finished manifest and wraps');
     assert.equal(receipt.status, 'complete');
   } finally {
@@ -54,12 +54,12 @@ test('partialNightlyOk: incomplete-only manifests are coverage notes, but an all
   const ok = { status: 0, stdout: JSON.stringify({ status: 'complete', dependencyCount: 2, dangerousCount: 0, issues: [] }) };
   const stale = { status: 2, stdout: JSON.stringify({ status: 'incomplete', dependencyCount: 1, dangerousCount: 0, issues: ['x@1.0.0: scan coverage incomplete'] }) };
   try {
-    let receipt = runNightly({ config, roots: [root], healthOptions: health, run: (_, args) => (path.basename(path.dirname(args[1])) === 'a' ? ok : stale) });
+    let receipt = runNightly({ advisoryFirst: false, config, roots: [root], healthOptions: health, run: (_, args) => (path.basename(path.dirname(args[1])) === 'a' ? ok : stale) });
     assert.deepEqual(receipt.issues, []);
     assert.equal(receipt.exitCode, 0);
     assert.equal(receipt.coverage.incompleteManifests, 1);
     fs.rmSync(path.join(process.env.GUARDOG_HOME, 'data', 'nightly-cursor.json'), { force: true });
-    receipt = runNightly({ config, roots: [root], healthOptions: health, run: () => stale });
+    receipt = runNightly({ advisoryFirst: false, config, roots: [root], healthOptions: health, run: () => stale });
     assert.equal(receipt.exitCode, 2, 'nothing scanned completely is a failed night');
   } finally {
     if (previous === undefined) delete process.env.GUARDOG_HOME; else process.env.GUARDOG_HOME = previous;
@@ -82,7 +82,7 @@ test('partialNightlyOk: a quota stop on a manifest that found danger keeps the d
   const health = { platform: 'linux', run: () => ({ status: 0, stdout: '' }) };
   const dangerQuota = { status: 1, stdout: JSON.stringify({ status: 'dangerous', dependencyCount: 3, dangerousCount: 1, quotaExhausted: true, issues: [] }) };
   try {
-    const receipt = runNightly({ config, roots: [root], healthOptions: health, run: () => dangerQuota });
+    const receipt = runNightly({ advisoryFirst: false, config, roots: [root], healthOptions: health, run: () => dangerQuota });
     assert.equal(receipt.dangerousCount, 1, 'found danger is never discarded by a quota deferral');
     assert.notEqual(receipt.status, 'partial');
     assert.notEqual(receipt.exitCode, 0);
