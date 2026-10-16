@@ -1,4 +1,4 @@
-# MyOS Guard Dog 5.0.2
+# MyOS Guard Dog 5.0.3
 
 VirusTotal requests are paced within each process, including retries and refreshes.
 Separate processes or other software sharing the same API key can still exhaust its
@@ -36,7 +36,7 @@ Use the [installation prompt](GUARD_DOG_PROMPT.md). It guides your assistant thr
 For a terminal installation on macOS, Windows, or Linux, use Node 22 or Node 24 LTS. Other major versions are rejected so local installs, CI and support all exercise the same runtime:
 
 ```sh
-npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.0.2
+npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.0.3
 myos-guard-dog setup
 myos-guard-dog test
 myos-guard-dog scan "/your/project"
@@ -47,7 +47,7 @@ On Windows, substitute a quoted Windows folder such as `"C:\Users\You\Projects"`
 
 State lives in `~/.guardog` or `%USERPROFILE%\.guardog`, independently of the installation directory. `GUARDOG_HOME` selects another state folder. These legacy state names are intentional compatibility identifiers, not commands or product names. Do not rename them: upgrades reuse them to preserve settings, credentials and schedules.
 
-Use the v5.0.2 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
+Use the v5.0.3 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
 
 ## A keyless first check
 
@@ -80,6 +80,24 @@ myos-guard-dog analyze requests@2.32.3 pypi
 ```
 
 Project audits read exact npm lockfile versions, including transitive dependencies, and compare installed identity when present. npm lockfile versions 1, 2 and 3 and shrinkwrap files are supported. Non-registry or unproven origins, installed-only packages, and mismatches between installed metadata and the lock make coverage incomplete. Python and Ruby packages can be analyzed individually; automatic project inventory currently covers npm.
+
+## Long scans and time budgets
+
+VirusTotal lookups are spaced 16 seconds apart. At least one lookup per dependency means 100 dependencies can take about 26 minutes, before registry checks, retries or report refreshes. The nightly per-project hard limit remains 15 minutes; increasing it alone does not solve repeated restarts.
+
+Nightly scans now stop starting new dependency checks after 13 minutes by default, leaving two minutes for an in-flight check. Each completed analysis writes an atomic progress receipt. The next run starts at the next dependency, and changed inventory resets the cursor. A forced timeout recovers findings from that same child run when its receipt is available.
+
+For a bounded manual audit, use:
+
+```sh
+myos-guard-dog scan "/your/project" --budget-ms 780000 --json
+```
+
+The budget stops new checks; the current check can finish afterward. The nightly parent retains the hard timeout. Ordinary manual scans without `--budget-ms` still request a full audit. Budgeted scans share their per-project cursor, so avoid running two concurrently.
+
+Read `scannedDependencyCount`, `deferredDependencyCount`, `budgetExhausted` and `resume` in the JSON. The cursor stores position only, not reusable clean verdicts. A large project may need several runs to visit every dependency, but those separate runs are never combined into a current complete verdict. Unchecked packages remain incomplete and exit 2. Known danger remains exit 1 even if other checks time out. Guarded installation requirements are unchanged.
+
+Nightly receipts add `scannedDependencyCount`, `coverage.deferredDependencies`, `budgetStops`, `timeouts` and `runnerFailure` when applicable. Progress is local under `~/.guardog/data/scan-progress/`; there is no automatic student telemetry. If a Node upgrade removes the running executable, the scan stops further launches and asks for Node 22/24 verification followed by `myos-guard-dog doctor --repair`. Review recurring failures with `myos-guard-dog doctor --json` and the latest nightly receipt. Do not share `.env` or API keys.
 
 ## VirusTotal and coverage
 

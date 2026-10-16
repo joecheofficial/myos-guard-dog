@@ -91,3 +91,23 @@ test('a shared daily quota guard prevents another request after capacity is rese
   assert.match(capped.error, /daily quota guard/i);
   assert.equal(h.calls.length, 1, 'the capped request must not reach VirusTotal');
 });
+
+
+test('known daily quota exhaustion fails promptly until the next UTC day', async () => {
+  const {VirusTotalScanner} = await import('../src/virustotal-scanner.js');
+  const h = harness('quota-fast-stop', [{status: 404}, {status: 404}]);
+  let remaining = 1;
+  const waits = [];
+  const advance = h.runtime.wait;
+  h.runtime.wait = async ms => { waits.push(ms); await advance(ms); };
+  const scanner = new VirusTotalScanner(h.config, {...h.runtime, quota: {reserve: () => remaining-- > 0}});
+  await scanner.scan(hash);
+  assert.equal((await scanner.scan(hash)).status, 'rate_limited');
+  const before = waits.length;
+  for (let i = 0; i < 10; i++) assert.equal((await scanner.scan(hash)).status, 'rate_limited');
+  assert.equal(waits.length, before, 'do not spend 16 seconds per package after known exhaustion');
+  await advance(86400000);
+  remaining = 1;
+  assert.equal((await scanner.scan(hash)).status, 'not_found');
+  assert.equal(h.calls.length, 2);
+});

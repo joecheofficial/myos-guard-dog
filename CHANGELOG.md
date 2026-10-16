@@ -1,3 +1,12 @@
+# Resumable nightly scans: 5.0.3
+
+- Checkpoint dependency progress after every completed analysis. Nightly scans stop starting new checks before the per-project deadline and resume at the next dependency on the next run.
+- Recover current-run findings if the child process still reaches its hard timeout. Known danger stays exit 1 even when other coverage is incomplete.
+- Add `scan --budget-ms N` and the helper equivalent for bounded manual audits. A cursor carries position only; previous verdicts never count as fresh evidence. Changed inventory resets the cursor.
+- Report checked and deferred dependency counts, budget stops, hard timeouts and runner failures in local receipts. Incomplete audits remain exit 2.
+- Stop repeated rate-limit waits after the local daily quota guard refuses a request; allow a fresh quota check after UTC rollover.
+- Stop spawning further scans when the Node executable is missing or cannot run, with a concrete repair instruction.
+
 # Student setup and naming corrections: 5.0.2
 
 - Use MyOS Guard Dog consistently in current product documentation. Keep third-party names and existing code identifiers distinct.

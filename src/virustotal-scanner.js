@@ -34,13 +34,20 @@ export class VirusTotalScanner {
       requestQueues.set(this.apiKey, queue);
     }
     const pending = queue.tail.then(async () => {
+      // A refused local quota cannot recover until the ledger's UTC day changes.
+      // Do not charge every remaining package another rate-limit wait.
+      const quotaDay = new Date(this.now()).toISOString().slice(0, 10);
+      if (queue.quotaBlockedDay === quotaDay) throw new Error('VirusTotal daily quota guard stopped this request before it was sent.');
       const delay = queue.nextAt - this.now();
       if (delay > 0) await this.wait(delay);
       queue.nextAt = this.now() + REQUEST_INTERVAL_MS;
       if (this.quota) {
         const reservation = this.quota.reserve();
         const allowed = reservation === true || reservation?.allowed === true;
-        if (!allowed) throw new Error('VirusTotal daily quota guard stopped this request before it was sent.');
+        if (!allowed) {
+          queue.quotaBlockedDay = new Date(this.now()).toISOString().slice(0, 10);
+          throw new Error('VirusTotal daily quota guard stopped this request before it was sent.');
+        }
       }
       // Waiting for a rate-limit slot must not consume the network timeout.
       const controller = new AbortController();

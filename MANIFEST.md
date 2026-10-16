@@ -1,4 +1,4 @@
-# MyOS Guard Dog 5.0.2 operations
+# MyOS Guard Dog 5.0.3 operations
 
 Guard Dog protects supported package workflows, not the entire operating system.
 
@@ -10,6 +10,7 @@ State is stored in `GUARDOG_HOME`, or `~/.guardog` by default. These legacy name
 - `.env`: local VirusTotal credential, never include it in reports.
 - `bin/nightly-runner.cjs`: Guard Dog-owned scheduler entry point.
 - `data/last-nightly.json`: latest scan receipt, coverage and findings.
+- `data/scan-progress/`: per-project resume positions and current-run summaries; no cached clean verdicts.
 - `data/nightly.lock`: overlap protection for active nightly runs.
 - `data/resilience-state.json`: privacy-safe install/nightly verification history and recurring issue categories.
 

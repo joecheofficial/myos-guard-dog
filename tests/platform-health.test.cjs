@@ -141,9 +141,10 @@ test('nightly distinguishes known danger from interrupted or degraded coverage',
     assert.equal(receipt.suspiciousCount, 1);
     assert.equal(receipt.exitCode, 2);
     receipt = runNightly({ roots: [root], healthOptions, run: () => ({ status: 2, stdout: JSON.stringify({ status: 'incomplete', dependencyCount: 1, dangerousCount: 1, issues: ['OSV unavailable'] }) }) });
-    assert.equal(receipt.status, 'incomplete');
+    assert.equal(receipt.status, 'dangerous');
     assert.equal(receipt.dangerousCount, 1);
-    assert.equal(receipt.exitCode, 2);
+    assert.equal(receipt.exitCode, 1);
+    assert.ok(receipt.issues.some(issue => issue.includes('OSV unavailable')));
   } finally { if (previous === undefined) delete process.env.GUARDOG_HOME; else process.env.GUARDOG_HOME = previous; }
 });
 
