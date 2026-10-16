@@ -3,6 +3,8 @@ import { existsSync, readdirSync, realpathSync, statSync, writeFileSync, renameS
 import { join, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
+import { randomUUID } from 'node:crypto';
+import { readScanProgress } from '../src/scan-progress.js';
 import { spawnSync } from 'node:child_process';
 import { ensureGuardogHome, guardogHome, packageRoot } from '../src/paths.js';
 import { loadUserConfig } from '../src/setup.js';
@@ -158,17 +160,31 @@ function performNightly(options) {
       break;
     }
     const timeout = Number.isFinite(manifestTimeoutMs) && manifestTimeoutMs > 0 ? Math.min(remaining, manifestTimeoutMs) : remaining;
-    const result = run(process.execPath, [join(packageRoot(), 'bin', 'scan-deps.js'), manifest, '--json'], { encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024, windowsHide: true });
+    const runId = randomUUID();
+    // Leave room for an in-flight registry/VT/OSV check to finish and checkpoint.
+    const budgetMs = Math.max(1, timeout - Math.min(120000, timeout / 2));
+    const result = run(process.execPath, [join(packageRoot(), 'bin', 'scan-deps.js'), manifest, '--json', '--budget-ms', String(budgetMs), '--run-id', runId], { encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024, windowsHide: true });
     receipt.projectsScanned++;
-    if (result.error?.code === 'ETIMEDOUT' || (result.status === null && result.signal)) {
-      if (partialOk) { deferred.push(manifest); lastDone = manifest; continue; }
-      receipt.issues.push('Scan timed out after ' + timeout + 'ms and was skipped: ' + manifest);
-      continue;
+    if (['ENOENT', 'EACCES', 'ENOEXEC'].includes(result.error?.code)) {
+      receipt.runnerFailure = result.error.code;
+      receipt.issues.push('Node scan runner is unavailable (' + result.error.code + '). Remaining project scans stopped. Verify Node 22 or 24, then run myos-guard-dog doctor --repair and retry.');
+      receipt.coverage.deferredManifests = ordered.length - index;
+      break;
+    }
+    const timedOut = result.error?.code === 'ETIMEDOUT' || (result.status === null && result.signal);
+    const recovered = timedOut ? readScanProgress(manifest, join(guardogHome(), 'data'), runId) : null;
+    if (timedOut) {
+      receipt.timeouts = (receipt.timeouts || 0) + 1;
+      receipt.issues.push('Scan timed out after ' + timeout + 'ms and was skipped: ' + manifest + (recovered ? '; completed checks recovered; next run resumes.' : '; no current progress receipt.'));
+      if (!recovered) { if (partialOk) { deferred.push(manifest); lastDone = manifest; } continue; }
     }
     try {
-      const summary = JSON.parse(result.stdout);
+      const summary = recovered || JSON.parse(result.stdout);
       if (!Number.isInteger(summary.dependencyCount) || summary.dependencyCount < 0 || !['complete', 'dangerous', 'suspicious', 'incomplete'].includes(summary.status)) throw new Error('invalid scan summary');
       receipt.dependencyCount += summary.dependencyCount;
+      receipt.scannedDependencyCount = (receipt.scannedDependencyCount || 0) + (summary.scannedDependencyCount ?? summary.dependencyCount);
+      if (summary.deferredDependencyCount > 0) receipt.coverage.deferredDependencies = (receipt.coverage.deferredDependencies || 0) + summary.deferredDependencyCount;
+      if (summary.budgetExhausted) receipt.budgetStops = (receipt.budgetStops || 0) + 1;
       receipt.dangerousCount += Number(summary.dangerousCount) || 0;
       receipt.suspiciousCount += Number(summary.suspiciousCount) || 0;
       if (summary.status === 'dangerous' && !summary.dangerousCount) receipt.dangerousCount++;
@@ -220,7 +236,7 @@ function performNightly(options) {
   }
   if (receipt.dependencyCount === 0 && !(partialOk && deferred.length)) receipt.issues.push('No installed dependencies were scanned.');
   const workspaceDanger = receipt.workspace?.findings.some(f => ['critical', 'high'].includes(f.severity));
-  receipt.status = workspaceDanger ? 'dangerous' : receipt.issues.length ? 'incomplete' : receipt.dangerousCount > 0 ? 'dangerous' : receipt.suspiciousCount > 0 ? 'suspicious' : deferred.length ? 'partial' : 'complete';
+  receipt.status = workspaceDanger || receipt.dangerousCount > 0 ? 'dangerous' : receipt.issues.length ? 'incomplete' : receipt.suspiciousCount > 0 ? 'suspicious' : deferred.length ? 'partial' : 'complete';
   receipt.finishedAt = new Date().toISOString();
   receipt.exitCode = receipt.status === 'incomplete' || receipt.status === 'suspicious' ? 2 : receipt.status === 'dangerous' ? 1 : 0; // 'partial' (opt-in) exits 0
   const receiptPath = join(guardogHome(), 'data', 'last-nightly.json');
@@ -232,8 +248,8 @@ function performNightly(options) {
     receipt.resilience = recordResilienceCycle({ phase: 'nightly', health, receipt });
   } catch (error) {
     receipt.issues.push('Resilience verification failed: ' + error.message);
-    receipt.status = workspaceDanger ? 'dangerous' : 'incomplete';
-    receipt.exitCode = workspaceDanger ? 1 : 2;
+    receipt.status = workspaceDanger || receipt.dangerousCount > 0 ? 'dangerous' : 'incomplete';
+    receipt.exitCode = receipt.status === 'dangerous' ? 1 : 2;
   }
   writeFileSync(temporary, JSON.stringify(receipt, null, 2), { mode: 0o600 });
   renameSync(temporary, receiptPath);
