@@ -27,7 +27,7 @@ test('Library directly under the home directory is skipped; a project Library fo
   const scanned = [];
   const run = (_, args) => { scanned.push(args[1]); return ok(); };
   const health = { platform: 'linux', run: () => ({ status: 0, stdout: '' }) };
-  const receipt = runNightly({ roots: [root], run, homeDirectory: root, healthOptions: health });
+  const receipt = runNightly({ advisoryFirst: false, roots: [root], run, homeDirectory: root, healthOptions: health });
   assert.ok(scanned.every((m) => !m.includes(path.join('Library', 'Caches'))), 'home Library must not be walked');
   assert.ok(scanned.some((m) => m.includes(path.join('project', 'Library'))), 'a Library folder inside a project still scans');
   assert.equal(receipt.status, 'complete');
@@ -45,7 +45,7 @@ test('reaching the depth limit and unreadable folders are counted as boundaries,
   fs.chmodSync(locked, 0o000);
   const health = { platform: 'linux', run: () => ({ status: 0, stdout: '' }) };
   try {
-    const receipt = runNightly({ roots: [root], run: () => ok(), healthOptions: health });
+    const receipt = runNightly({ advisoryFirst: false, roots: [root], run: () => ok(), healthOptions: health });
     assert.ok(receipt.boundaries.depthLimited >= 1, 'depth boundary counted');
     assert.ok(receipt.issues.every((issue) => !/depth exceeded/i.test(issue)), 'depth limit is not an issue');
     if (process.getuid && process.getuid() !== 0) {
@@ -64,7 +64,7 @@ test('a non-directory scan root is reported unavailable', () => withState(async 
   fs.mkdirSync(path.join(root, 'p')); fs.writeFileSync(path.join(root, 'p', 'package.json'), '{}');
   const health = { platform: 'linux', run: () => ({ status: 0, stdout: '' }) };
   try {
-    const receipt = runNightly({ roots: [root, other], run: () => ok(), healthOptions: health });
+    const receipt = runNightly({ advisoryFirst: false, roots: [root, other], run: () => ok(), healthOptions: health });
     assert.ok(receipt.issues.some((issue) => issue === 'Scan root is unavailable: ' + other));
     assert.equal(receipt.status, 'incomplete');
   } finally { fs.rmSync(other, { force: true }); }
@@ -82,11 +82,11 @@ test('config scanRoots win over GUARDOG_WORKSPACE, which stays the fallback', ()
   const run = (_, args) => { scanned.push(args[1]); return ok(); };
   const health = { platform: 'linux', run: () => ({ status: 0, stdout: '' }) };
   try {
-    let receipt = runNightly({ config: { nightlyUpdates: false, scanRoots: [chosen] }, run, healthOptions: health });
+    let receipt = runNightly({ advisoryFirst: false, config: { nightlyUpdates: false, scanRoots: [chosen] }, run, healthOptions: health });
     assert.deepEqual(receipt.roots, [chosen]);
     assert.ok(scanned.every((m) => m.startsWith(chosen)));
     scanned.length = 0;
-    receipt = runNightly({ config: { nightlyUpdates: false, scanRoots: [] }, run, healthOptions: health });
+    receipt = runNightly({ advisoryFirst: false, config: { nightlyUpdates: false, scanRoots: [] }, run, healthOptions: health });
     assert.deepEqual(receipt.roots, [elsewhere]);
   } finally {
     if (previous === undefined) delete process.env.GUARDOG_WORKSPACE; else process.env.GUARDOG_WORKSPACE = previous;
@@ -101,7 +101,7 @@ test('a project with no lockfile is a coverage gap, not an incomplete night', ()
     return { status: 0, stdout: JSON.stringify({ status: 'complete', dependencyCount: 4, dangerousCount: 0, issues: [] }) };
   };
   const health = { platform: 'linux', run: () => ({ status: 0, stdout: '' }) };
-  const receipt = runNightly({ roots: [root], run, healthOptions: health });
+  const receipt = runNightly({ advisoryFirst: false, roots: [root], run, healthOptions: health });
   assert.equal(receipt.coverage.projectsWithoutInventory, 1);
   assert.ok(receipt.coverage.samples[0].includes('scratch'));
   assert.ok(receipt.issues.every((issue) => !/lockfile|Incomplete or inconsistent/.test(issue)), receipt.issues.join('\n'));
@@ -114,7 +114,7 @@ test('an incomplete child scan with a real problem still fails the night', () =>
   fs.mkdirSync(path.join(root, 'p')); fs.writeFileSync(path.join(root, 'p', 'package.json'), '{}');
   const run = () => ({ status: 2, stdout: JSON.stringify({ status: 'incomplete', dependencyCount: 3, dangerousCount: 0, issues: ['No npm lockfile or installed dependency inventory is available', 'VirusTotal lookup failed for left-pad'] }) });
   const health = { platform: 'linux', run: () => ({ status: 0, stdout: '' }) };
-  const receipt = runNightly({ roots: [root], run, healthOptions: health });
+  const receipt = runNightly({ advisoryFirst: false, roots: [root], run, healthOptions: health });
   assert.equal(receipt.status, 'incomplete');
   assert.ok(receipt.issues.some((issue) => /VirusTotal lookup failed/.test(issue)));
 }));

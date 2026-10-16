@@ -7,6 +7,7 @@ function harness(key, responses) {
   return {
     config: { virustotal: { apiKey: key, baseUrl: 'https://vt.invalid', timeoutMs: 20 } },
     runtime: {
+      pace: async (_,request)=>request(), // Unit-test the in-process queue independently of persistent pacing.
       now: () => now,
       wait: async milliseconds => { now += milliseconds; },
       fetch: async (url, options) => {
@@ -110,4 +111,33 @@ test('known daily quota exhaustion fails promptly until the next UTC day', async
   remaining = 1;
   assert.equal((await scanner.scan(hash)).status, 'not_found');
   assert.equal(h.calls.length, 2);
+});
+
+test('audit pacing survives independent processes and serializes a shared key',async()=>{
+ const fs=require('node:fs'),os=require('node:os'),path=require('node:path');const {spawn}=require('node:child_process');const {pathToFileURL}=require('node:url');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'gd-pacer-'));
+ try{
+  const script=path.join(root,'probe.mjs'),log=path.join(root,'requests.jsonl');
+  fs.writeFileSync(script,`import {createRequestPacer} from ${JSON.stringify(pathToFileURL(path.resolve(__dirname,'../src/request-pacer.js')).href)};import fs from 'node:fs';const pace=createRequestPacer('shared-key',{directory:${JSON.stringify(root)}});await pace(120,async()=>{fs.appendFileSync(${JSON.stringify(log)},Date.now()+'\\n');await new Promise(r=>setTimeout(r,40));});`);
+  const launch=()=>new Promise((resolve,reject)=>{const child=spawn(process.execPath,[script]);let error='';child.stderr.on('data',d=>error+=d);child.on('error',reject);child.on('exit',code=>code===0?resolve():reject(Error(error)));});
+  await Promise.all([launch(),launch()]);await launch();
+  const times=fs.readFileSync(log,'utf8').trim().split('\n').map(Number);assert.equal(times.length,3);
+  assert.ok(times[1]-times[0]>=110);assert.ok(times[2]-times[1]>=110);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('audit and direct scanner processes share the production VT pacing ledger',async()=>{
+ const fs=require('node:fs'),os=require('node:os'),path=require('node:path');const {spawnSync}=require('node:child_process');const {pathToFileURL}=require('node:url');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'gd-vt-shared-'));
+ try{
+  const script=path.join(root,'probe.mjs');
+  fs.writeFileSync(script,`import {VirusTotalScanner} from ${JSON.stringify(pathToFileURL(path.resolve(__dirname,'../src/virustotal-scanner.js')).href)};
+   import {createAuditAnalyzer} from ${JSON.stringify(pathToFileURL(path.resolve(__dirname,'../src/audit-analyzer.js')).href)};
+   let now=1000;const scanner=new VirusTotalScanner({virustotal:{apiKey:'cross-process-fixture',baseUrl:'https://vt.invalid',timeoutMs:1000}},{now:()=>now,wait:async ms=>{now+=ms;},fetch:async()=>({ok:false,status:404,headers:new Headers()})});
+   if(process.argv[2]==='audit')createAuditAnalyzer({config:{},scanner,cveChecker:{checkCVEs:async()=>null},reputation:{checkGitHub:async()=>null,checkReputation:async()=>null}},{cacheDir:${JSON.stringify(path.join(root,'cache'))}});
+   await scanner.scan('a'.repeat(64));console.log(now);`);
+  const run=mode=>spawnSync(process.execPath,[script,mode],{env:{...process.env,GUARDOG_HOME:root},encoding:'utf8',timeout:5000});
+  const first=run('audit'),second=run('direct');assert.equal(first.status,0,first.stderr);assert.equal(second.status,0,second.stderr);
+  assert.equal(Number(first.stdout.trim()),1000);assert.equal(Number(second.stdout.trim()),17000);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
 });

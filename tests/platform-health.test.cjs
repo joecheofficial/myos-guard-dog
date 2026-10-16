@@ -133,14 +133,14 @@ test('nightly distinguishes known danger from interrupted or degraded coverage',
     fs.mkdirSync(process.env.GUARDOG_HOME);
     fs.writeFileSync(path.join(process.env.GUARDOG_HOME, 'config.json'), JSON.stringify({ nightlyUpdates: false, scanRoots: [root] }));
     const healthOptions = { platform: 'linux', run: () => ({ status: 0, stdout: '' }) };
-    let receipt = runNightly({ roots: [root], healthOptions, run: () => ({ status: 1, stdout: JSON.stringify({ status: 'dangerous', dependencyCount: 1, dangerousCount: 1, issues: [] }) }) });
+    let receipt = runNightly({ advisoryFirst: false, roots: [root], healthOptions, run: () => ({ status: 1, stdout: JSON.stringify({ status: 'dangerous', dependencyCount: 1, dangerousCount: 1, issues: [] }) }) });
     assert.equal(receipt.status, 'dangerous');
     assert.equal(receipt.exitCode, 1);
-    receipt = runNightly({ roots: [root], healthOptions, run: () => ({ status: 2, stdout: JSON.stringify({ status: 'suspicious', dependencyCount: 1, dangerousCount: 0, suspiciousCount: 1, issues: [] }) }) });
+    receipt = runNightly({ advisoryFirst: false, roots: [root], healthOptions, run: () => ({ status: 2, stdout: JSON.stringify({ status: 'suspicious', dependencyCount: 1, dangerousCount: 0, suspiciousCount: 1, issues: [] }) }) });
     assert.equal(receipt.status, 'suspicious');
     assert.equal(receipt.suspiciousCount, 1);
     assert.equal(receipt.exitCode, 2);
-    receipt = runNightly({ roots: [root], healthOptions, run: () => ({ status: 2, stdout: JSON.stringify({ status: 'incomplete', dependencyCount: 1, dangerousCount: 1, issues: ['OSV unavailable'] }) }) });
+    receipt = runNightly({ advisoryFirst: false, roots: [root], healthOptions, run: () => ({ status: 2, stdout: JSON.stringify({ status: 'incomplete', dependencyCount: 1, dangerousCount: 1, issues: ['OSV unavailable'] }) }) });
     assert.equal(receipt.status, 'dangerous');
     assert.equal(receipt.dangerousCount, 1);
     assert.equal(receipt.exitCode, 1);
@@ -155,7 +155,7 @@ test('nightly rejects contradictory subprocess exit status and summary', async (
   process.env.GUARDOG_HOME = path.join(root, 'state');
   fs.writeFileSync(path.join(root, 'package.json'), '{}');
   try {
-    const receipt = runNightly({ roots: [root], run: () => ({ status: 1, stdout: JSON.stringify({ status: 'complete', dependencyCount: 1, dangerousCount: 0, issues: [] }) }) });
+    const receipt = runNightly({ advisoryFirst: false, roots: [root], run: () => ({ status: 1, stdout: JSON.stringify({ status: 'complete', dependencyCount: 1, dangerousCount: 0, issues: [] }) }) });
     assert.equal(receipt.status, 'incomplete');
   } finally { if (previous === undefined) delete process.env.GUARDOG_HOME; else process.env.GUARDOG_HOME = previous; }
 });
@@ -279,12 +279,12 @@ test('nightly refuses overlap and enforces a finite run budget', async () => {
   try {
     let calls = 0;
     const run = () => { calls++; throw new Error('must not run'); };
-    let receipt = runNightly({ roots: [root], run });
+    let receipt = runNightly({ advisoryFirst: false, roots: [root], run });
     assert.equal(receipt.exitCode, 2);
     assert.match(receipt.issues.join(' '), /overlapping/);
     assert.equal(calls, 0);
     fs.unlinkSync(lock);
-    receipt = runNightly({ roots: [root], run, timeoutMs: 0 });
+    receipt = runNightly({ advisoryFirst: false, roots: [root], run, timeoutMs: 0 });
     assert.equal(receipt.exitCode, 2);
     assert.match(receipt.issues.join(' '), /time budget/);
     assert.equal(calls, 0);

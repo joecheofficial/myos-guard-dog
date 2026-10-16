@@ -25,7 +25,7 @@ test('a manifest that times out is skipped with a logged issue and later manifes
     return { status: 0, stdout: JSON.stringify({ status: 'complete', dependencyCount: 3, dangerousCount: 0, issues: [] }) };
   };
   try {
-    const receipt = runNightly({ roots: [root], run: scanner, manifestTimeoutMs: 1234, healthOptions: { platform: 'linux', run: () => ({ status: 0, stdout: '' }) } });
+    const receipt = runNightly({ advisoryFirst: false, roots: [root], run: scanner, manifestTimeoutMs: 1234, healthOptions: { platform: 'linux', run: () => ({ status: 0, stdout: '' }) } });
     assert.equal(calls.length, 2, 'the scan must continue past the timed-out manifest');
     for (const call of calls) assert.ok(call.timeout <= 1234, 'each manifest gets the per-manifest cap, not the whole budget');
     assert.equal(receipt.dependencyCount, 3);
@@ -48,7 +48,7 @@ test('hard child timeout recovers current findings and danger outranks incomplet
   fs.writeFileSync(path.join(root, 'package.json'), '{}');
   fs.writeFileSync(path.join(process.env.GUARDOG_HOME, 'config.json'), JSON.stringify({nightlyUpdates: false}));
   try {
-    const receipt = runNightly({roots: [root], manifestTimeoutMs: 1000, healthOptions: {platform: 'linux', run: () => ({status: 0, stdout: ''})}, run: (_, args) => {
+    const receipt = runNightly({ advisoryFirst: false,roots: [root], manifestTimeoutMs: 1000, healthOptions: {platform: 'linux', run: () => ({status: 0, stdout: ''})}, run: (_, args) => {
       const runId = args[args.indexOf('--run-id') + 1];
       assert.ok(runId);
       assert.equal(Number(args[args.indexOf('--budget-ms') + 1]), 500);
@@ -82,7 +82,7 @@ test('missing Node executable stops the manifest loop with one actionable failur
   for (const name of ['a', 'b', 'c']) { fs.mkdirSync(path.join(root, name)); fs.writeFileSync(path.join(root, name, 'package.json'), '{}'); }
   let calls = 0;
   try {
-    const receipt = runNightly({roots: [root], healthOptions: {platform: 'linux', run: () => ({status: 0, stdout: ''})}, run: () => {calls++; return {error: Object.assign(new Error('spawn node ENOENT'), {code: 'ENOENT'}), status: null};}});
+    const receipt = runNightly({ advisoryFirst: false,roots: [root], healthOptions: {platform: 'linux', run: () => ({status: 0, stdout: ''})}, run: () => {calls++; return {error: Object.assign(new Error('spawn node ENOENT'), {code: 'ENOENT'}), status: null};}});
     assert.equal(calls, 1);
     assert.equal(receipt.status, 'incomplete');
     assert.equal(receipt.exitCode, 2);

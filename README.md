@@ -1,4 +1,4 @@
-# MyOS Guard Dog 5.0.3
+# MyOS Guard Dog 5.1.0
 
 VirusTotal requests are paced within each process, including retries and refreshes.
 Separate processes or other software sharing the same API key can still exhaust its
@@ -36,7 +36,7 @@ Use the [installation prompt](GUARD_DOG_PROMPT.md). It guides your assistant thr
 For a terminal installation on macOS, Windows, or Linux, use Node 22 or Node 24 LTS. Other major versions are rejected so local installs, CI and support all exercise the same runtime:
 
 ```sh
-npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.0.3
+npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.1.0
 myos-guard-dog setup
 myos-guard-dog test
 myos-guard-dog scan "/your/project"
@@ -47,7 +47,7 @@ On Windows, substitute a quoted Windows folder such as `"C:\Users\You\Projects"`
 
 State lives in `~/.guardog` or `%USERPROFILE%\.guardog`, independently of the installation directory. `GUARDOG_HOME` selects another state folder. These legacy state names are intentional compatibility identifiers, not commands or product names. Do not rename them: upgrades reuse them to preserve settings, credentials and schedules.
 
-Use the v5.0.3 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
+Use the v5.1.0 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
 
 ## A keyless first check
 
@@ -78,6 +78,14 @@ myos-guard-dog-scan "/your/project/package.json" --json
 myos-guard-dog analyze node-ipc@10.1.1 npm
 myos-guard-dog analyze requests@2.32.3 pypi
 ```
+
+Project and nightly audits now check advisories first with four bounded local workers. Nightly completes its advisory sweep across all discovered projects before starting slower enrichment. Shared dependencies reuse successful evidence within that run. Each new nightly run checks OSV again, even when Git is clean.
+
+Local workspace scans re-read and hash file bytes, then reuse unchanged rule results for up to 24 hours. This also covers ignored and untracked files within the declared scope. Cached findings remain visible. Reports include `filesAnalyzed` and `filesReused`; `myos-guard-dog workspace <folder> --no-cache` forces full rule evaluation. Git cleanliness alone is never evidence of safety.
+
+Audit enrichment reuses successful reputation and integrity-verified archive hashes for one hour. VirusTotal results remain reusable only while their original analysis is fresh (at most 24 hours); failures and stale reports never become clean evidence. Cache entries are private, integrity-authenticated and bounded to 8,192 entries of at most 256 KiB each. Cache corruption causes a fresh check. This protects against damaged cache entries, not an attacker controlling your user account. `myos-guard-dog scan <folder> --no-cache` refreshes all evidence. Guarded installs do not use audit caches.
+
+Use `myos-guard-dog scan <folder> --advisories-only --json` for the fast advisory phase. Its enrichment coverage intentionally remains incomplete. JSON reports name affected packages and advisory IDs, and nightly reports include project paths plus separate `phases.advisories` and `phases.enrichment`. Exit 1 means danger; exit 2 still means incomplete or suspicious protection. Finishing the job does not imply every external check completed.
 
 Project audits read exact npm lockfile versions, including transitive dependencies, and compare installed identity when present. npm lockfile versions 1, 2 and 3 and shrinkwrap files are supported. Non-registry or unproven origins, installed-only packages, and mismatches between installed metadata and the lock make coverage incomplete. Python and Ruby packages can be analyzed individually; automatic project inventory currently covers npm.
 
@@ -140,3 +148,5 @@ Guard Dog protects package workflows and selected coding workspaces. It is not a
 `npm test` runs regression and real packed-install tests. CI runs these on Windows, macOS and Linux with Node 24. Scheduler tests exercise platform command construction and readback without installing real tasks. `npm run test:live` separately exercises public services and may consume API quota. See the release verification record for actual platform results.
 
 Report security issues through [GitHub Security Advisories](https://github.com/josephtandle/myos-guard-dog/security/advisories/new). License: MIT.
+
+Set `GUARDOG_NIGHTLY_TIMEOUT_MS` (milliseconds, maximum 24 hours) or `nightlyTimeoutMs` in the user configuration to change the one-hour total budget. `GUARDOG_MANIFEST_TIMEOUT_MS` retains the 15-minute enrichment cap; projects share remaining time fairly. Half the available time is reserved for the advisory sweep, with unused time available to enrichment. Finite limits remain deliberate; budget stops save resumable progress. Choose explicit project roots instead of scanning an entire home directory.

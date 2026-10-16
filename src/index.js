@@ -41,7 +41,7 @@ assertSupportedNodeVersion();
 loadEnvFile(join(dirname(fileURLToPath(import.meta.url)), '../.env'));
 loadEnvFile(guardogEnvPath(), { override: true });
 
-export async function deriveVirusTotalTarget(reputationData, ecosystem) {
+export async function deriveVirusTotalTarget(reputationData, ecosystem, cache = null) {
   const registry = reputationData?.registry;
   if (!registry || !registry.tarball) {
     return null;
@@ -51,9 +51,14 @@ export async function deriveVirusTotalTarget(reputationData, ecosystem) {
     return registry.sha256;
   }
 
+  const integrity=/^sha(256|384|512)-([A-Za-z0-9+/]+={0,2})$/.exec(registry.integrity || '');
+  const cacheKey=['artifact-hash',registry.tarball,registry.integrity];
+  const cached=integrity?cache?.get(cacheKey,3600000):null;
+  if(typeof cached==='string' && /^[a-f0-9]{64}$/.test(cached))return cached;
+  let timeoutId;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    timeoutId = setTimeout(() => controller.abort(), 30000);
 
     const response = await fetch(registry.tarball, { signal: controller.signal });
     if (!response.ok) {
@@ -62,6 +67,7 @@ export async function deriveVirusTotalTarget(reputationData, ecosystem) {
     }
 
     const hash = createHash('sha256');
+    const integrityHash=integrity?createHash('sha'+integrity[1]):null;
     let totalBytes = 0;
     const maxBytes = 50 * 1024 * 1024;
 
@@ -73,13 +79,17 @@ export async function deriveVirusTotalTarget(reputationData, ecosystem) {
         return null;
       }
       hash.update(chunk);
+      integrityHash?.update(chunk);
     }
 
     clearTimeout(timeoutId);
-    return hash.digest('hex');
+    if(integrityHash && integrityHash.digest('base64')!==integrity[2])return null;
+    const target=hash.digest('hex');
+    if(integrity)cache?.set(cacheKey,target,3600000);
+    return target;
   } catch {
     return null;
-  }
+  } finally {clearTimeout(timeoutId);}
 }
 
 export function selectPyPiDistribution(registry, target = null) {
@@ -197,7 +207,7 @@ export class GuardDog {
     }
     if (this.scanner) {
       if (!vtTarget && reputationData?.registry?.tarball) {
-        vtTarget = await deriveVirusTotalTarget(reputationData, ecosystem);
+        vtTarget = await deriveVirusTotalTarget(reputationData, ecosystem, this.auditCache);
         if (!vtTarget) {
           console.log('⚠️  VirusTotal scan skipped (could not derive package hash)');
         }

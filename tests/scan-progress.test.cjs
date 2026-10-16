@@ -73,6 +73,9 @@ test('real CLI child returns before its budget and continues at the next depende
   const source = pathToFileURL(path.resolve(__dirname, '../src/index.js')).href;
   fs.writeFileSync(preload, `import {GuardDog} from ${JSON.stringify(source)};
     let clock = Date.now(); Date.now = () => clock;
+    GuardDog.prototype.cveFixture=true;
+    const {CVEChecker}=await import(${JSON.stringify(pathToFileURL(path.resolve(__dirname,'../src/cve-checker.js')).href)});
+    CVEChecker.prototype.checkCVEs=async function(n,e,v){return {status:'complete',version:v,vulnerabilities:[],severity:{critical:0,high:0,medium:0,low:0}};};
     GuardDog.prototype.analyze = async function(name) {
       clock += 60;
       return {packageName: name, version: '1.0.0', decision: {action: 'SILENT', coverage: 'complete', threat: 'SAFE'}, cveResults: {status: 'complete'}};
@@ -100,6 +103,9 @@ test('real killed child leaves a recoverable current snapshot', () => fixture(as
   fs.writeFileSync(path.join(root, 'package-lock.json'), JSON.stringify({lockfileVersion: 3, packages: Object.fromEntries(inventory.packages.map(p => [`node_modules/${p.name}`, {version: p.version, resolved: `https://registry.npmjs.org/${p.name}/-/${p.name}-1.0.0.tgz`}]))}));
   const preload = path.join(root, 'preload.mjs');
   fs.writeFileSync(preload, `import {GuardDog} from ${JSON.stringify(pathToFileURL(path.resolve(__dirname, '../src/index.js')).href)};
+    GuardDog.prototype.cveFixture=true;
+    const {CVEChecker}=await import(${JSON.stringify(pathToFileURL(path.resolve(__dirname,'../src/cve-checker.js')).href)});
+    CVEChecker.prototype.checkCVEs=async function(n,e,v){return {status:'complete',version:v,vulnerabilities:[],severity:{critical:0,high:0,medium:0,low:0}};};
     GuardDog.prototype.analyze = async function(name) {
       if (name === 'pkg-1') await new Promise(resolve => setTimeout(resolve, 10000));
       return {packageName: name, version: '1.0.0', decision: {action: 'BARK', coverage: 'complete'}, cveResults: {status: 'complete'}};
@@ -109,10 +115,10 @@ test('real killed child leaves a recoverable current snapshot', () => fixture(as
   fs.mkdirSync(process.env.GUARDOG_HOME);
   fs.writeFileSync(path.join(process.env.GUARDOG_HOME, 'config.json'), JSON.stringify({nightlyUpdates: false}));
   try {
-    const receipt = runNightly({roots: [root], manifestTimeoutMs: 2000, healthOptions: {platform: 'linux', run: () => ({status: 0, stdout: ''})}, run: (command, args, options) => spawnSync(command, ['--import', pathToFileURL(preload).href, ...args], options)});
+    const receipt = runNightly({advisoryFirst:false,roots: [root], manifestTimeoutMs: 2000, healthOptions: {platform: 'linux', run: () => ({status: 0, stdout: ''})}, run: (command, args, options) => spawnSync(command, ['--import', pathToFileURL(preload).href, ...args], options)});
     assert.equal(receipt.timeouts, 1);
-    assert.equal(receipt.scannedDependencyCount, 1);
-    assert.equal(receipt.dangerousCount, 1);
+    assert.equal(receipt.scannedDependencyCount, 4);
+    assert.equal(receipt.dangerousCount, 4);
     assert.equal(receipt.status, 'dangerous');
     assert.equal(receipt.exitCode, 1);
   } finally {if(previous === undefined) delete process.env.GUARDOG_HOME; else process.env.GUARDOG_HOME = previous;}
@@ -131,4 +137,30 @@ test('checkpoint write failure retains detected danger in the returned summary',
   assert.equal(summary.dangerousCount, 1);
   assert.match(summary.progressError, /checkpoint/i);
   assert.equal(summary.scannedDependencyCount, 1);
+}));
+
+test('bounded workers checkpoint out-of-order completion without skipping unfinished work', () => fixture(async (root, {scanWithProgress,readScanProgress}) => {
+ let active=0,peak=0;
+ const result=await scanWithProgress(inventory,{manifest:path.join(root,'package.json'),stateDir:root,budgetMs:1000,concurrency:3,runId:'pool',analyze:async pkg=>{
+  active++;peak=Math.max(peak,active); await new Promise(r=>setTimeout(r,pkg.name==='pkg-0'?30:2));active--;return good(pkg.name);
+ }});
+ assert.equal(peak,3); assert.equal(result.scannedDependencyCount,5); assert.equal(result.status,'complete');
+ assert.equal(readScanProgress(path.join(root,'package.json'),root,'pool').resume.nextIndex,0);
+}));
+
+test('a concurrent manual scan cannot overwrite the current manifest cursor',()=>fixture(async(root,{scanWithProgress})=>{
+ let unlock;const gate=new Promise(r=>unlock=r);
+ const options={manifest:path.join(root,'package.json'),stateDir:root,budgetMs:1000,analyze:async p=>{await gate;return good(p.name);}};
+ const first=scanWithProgress(inventory,options);
+ await assert.rejects(scanWithProgress(inventory,options),/lease/);
+ unlock();assert.equal((await first).status,'complete');
+}));
+
+test('changed inventory cannot inherit advisory-complete coverage from a prior snapshot',()=>fixture(async(root,{scanWithProgress,readScanProgress})=>{
+ const manifest=path.join(root,'package.json'),one={complete:true,issues:[],packages:[{name:'a',version:'1.0.0'}]},two={...one,packages:[{name:'b',version:'1.0.0'}]};
+ const prior=await scanWithProgress(one,{manifest,stateDir:root,budgetMs:1000,runId:'same-run',analyze:async p=>good(p.name)});
+ assert.equal(readScanProgress(manifest,root,'same-run',two),null);
+ const {mergeAuditPhases}=await import('../src/scan-summary.js');
+ const current=await scanWithProgress(two,{manifest,stateDir:root,budgetMs:1,now:()=>10,analyze:async p=>({...good(p.name),cveResults:{status:'unavailable'},decision:{action:'SILENT',coverage:'incomplete'}})});
+ const merged=mergeAuditPhases(prior,current);assert.equal(merged.advisoryCheckedCount,0);assert.ok(merged.issues.some(i=>/inventory changed/.test(i)));
 }));
