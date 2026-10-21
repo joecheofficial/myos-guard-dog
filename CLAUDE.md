@@ -1,6 +1,6 @@
 # Guard Dog contributor guide
 
-Read README.md and guardog.md before changing behavior or describing protection.
+Read README.md and myos-guard-dog.md before changing behavior or describing protection.
 
 The CLI is `node src/index.js`. Run `npm test` for offline regression tests.
 `npm run test:live` makes external service calls and may use a locally configured key.
@@ -18,7 +18,7 @@ Use independent review and cross-platform tests before publishing a release.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **guardog** (948 symbols, 1505 relationships, 48 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **guardog** (2000 symbols, 3144 relationships, 109 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

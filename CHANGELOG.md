@@ -1,4 +1,70 @@
+# Incremental advisory-first scans: 5.1.0
+
+- Run a four-worker advisory sweep across all discovered projects before VirusTotal or GitHub enrichment. Share exact-version OSV evidence only within the current nightly run; every new run checks for newly published advisories.
+- Reuse local rule results by actual file bytes, path and scanner/ruleset version for up to 24 hours. Re-read/hash ignored and untracked files too. Preserve cached findings and all existing scope/resource limits. `workspace --no-cache` forces rule evaluation.
+- Add private, bounded, authenticated evidence caching: successful reputation and verified artifact-hash mappings for one hour; VirusTotal hash reports only while their original analysis remains fresh. Failed checks never certify coverage. Install gates remain uncached.
+- Deduplicate shared GitHub repositories, pace GitHub and VirusTotal across audit processes, and keep the existing daily VT quota guard. Work runs in local deterministic workers with no model API costs.
+- Preserve out-of-order worker checkpoints, prevent overlapping writes to a manifest cursor, and retry unfinished rows after interruption.
+- Include package names, exact versions, project paths and advisory IDs in nightly findings. Report advisory and enrichment coverage separately; retain advisories when enrichment is deferred or killed.
+- Share remaining enrichment time fairly between projects. Configure total budget with `GUARDOG_NIGHTLY_TIMEOUT_MS` or `nightlyTimeoutMs`; retain `GUARDOG_MANIFEST_TIMEOUT_MS` as a per-project cap. Explicit `scan --advisories-only` runs the fast phase without enrichment.
+
+# Resumable nightly scans: 5.0.3
+
+- Checkpoint dependency progress after every completed analysis. Nightly scans stop starting new checks before the per-project deadline and resume at the next dependency on the next run.
+- Recover current-run findings if the child process still reaches its hard timeout. Known danger stays exit 1 even when other coverage is incomplete.
+- Add `scan --budget-ms N` and the helper equivalent for bounded manual audits. A cursor carries position only; previous verdicts never count as fresh evidence. Changed inventory resets the cursor.
+- Report checked and deferred dependency counts, budget stops, hard timeouts and runner failures in local receipts. Incomplete audits remain exit 2.
+- Stop repeated rate-limit waits after the local daily quota guard refuses a request; allow a fresh quota check after UTC rollover.
+- Stop spawning further scans when the Node executable is missing or cannot run, with a concrete repair instruction.
+
+# Student setup and naming corrections: 5.0.2
+
+- Use MyOS Guard Dog consistently in current product documentation. Keep third-party names and existing code identifiers distinct.
+- Explain why `.guardog` and `GUARDOG_HOME` remain unchanged for existing settings, credentials and schedules.
+- Fix the shell installer and student setup instructions to accept both supported Node versions, 22 and 24. Unsupported majors still stop before npm runs.
+- Include the local workspace scan in student setup instructions and distinguish it from the dependency audit.
+- Document `myos-guard-dog-scan` as the bundled helper; keep `myos-guard-dog` as the main command.
+
+# Customer report security fixes: 5.0.1
+
+These three fixes come from an All Sorted customer report.
+
+- VirusTotal requests refuse HTTP redirects, so the x-apikey header can never be forwarded to another host.
+- GitHub issue search uses the repository's canonical name (renamed repositories), validated as a plain owner/repo before it enters the search query. Legacy owners ending in a hyphen are accepted.
+- Guarded install accepts exactly two reviewed override shapes that All Sorted ships (Mission Control's postcss pin, the WhatsApp server's Baileys/qs pins). Every locked package is still origin-, integrity- and scan-checked; every other override is refused, including a null or empty one.
+
+# Workspace scanner: 5.0.0
+
+- Adds an offline workspace command with 28 original rules for secrets, suspicious source patterns, development configuration, CI and agent permissions.
+- Adds bounded no-follow file traversal, explicit incomplete coverage, JSON/SARIF output and non-suppressing baselines. Reports do not contain matched credential values.
+- Adds opt-in workspace scanning to existing nightly jobs and reports local coverage separately from dependency protection.
+- Adds an explicit adapter for a separately installed ClamAV engine. Missing, stale or failed engines remain incomplete; GuardDog never installs or updates that engine automatically.
+- Preserves both the local nightly quota/rotation improvements and public 4.1 package-artifact inspection.
+- Expands CI to Node 22/24 on macOS, Linux and Windows; adds an isolated Linux ClamAV release probe with harmless fixtures.
+
+Native rules are heuristic checks, not semantic SAST or endpoint antivirus. Evidence and deployment boundaries are recorded in WORKSPACE-SECURITY.md.
+
 # Changelog
+
+## 4.1.0 (release candidate)
+
+- Add keyless, exact-version npm artifact inspection with verified registry digest or local `.tgz` input. Parse archive bytes in memory with bounded size and entry limits; report lifecycle scripts and correlated source indicators without executing or extracting package code.
+- Gate guarded npm installs on that bounded artifact inspection in addition to existing OSV, registry and VirusTotal checks. High-risk, review and incomplete artifact findings block the guarded install with a file and rule to examine.
+- Make failed pattern checks reach the actual install verdict, and make suspicious project-audit results visible with a nonzero exit status.
+- Fold in the unreleased 4.0.4 candidate fixes below.
+
+- Resolve Windows helpers by absolute system path, reject project-local npm entry points, and keep Guard Dog credentials out of helper and npm child environments.
+- Treat non-registry and unproven dependency origins, lock and install mismatches, and installed-only packages as incomplete inventory coverage.
+- Block UNCONFIRMED installs, distinguish unsupported repository hosts, scope trusted names to their ecosystem, and use canonical GitHub repository names after redirects.
+- Make batch and command failures visible in exit codes; recover abandoned quota locks, fail closed on corrupt ledgers, and write quota records atomically.
+- Require the exact PyPI distribution hash for multi-file releases and state the metadata-only scope of pattern checks in output and docs.
+- Bound package-batch analysis to four concurrent packages while preserving order and VirusTotal API-key pacing.
+- Detect legacy `# guarddog-nightly` cron entries and preserve customized schedules.
+- Make scan-root regression coverage portable across Windows, macOS and Linux.
+
+## 4.0.3
+
+- Declare POSIX installer and installed-hook tests unsupported on Windows, matching the product behavior, so cross-platform CI tests the supported surface without attempting to launch unavailable Bash commands.
 
 ## 4.0.2
 
@@ -7,7 +73,7 @@
 - Preserve customized scheduler entries during enable, repair and disable, while repairing the owned runner independently.
 - Add bounded install and nightly resilience cycles with repair readback, recurrence tracking and privacy-safe next actions.
 - Standardize the public repository, package and command identity as `josephtandle/myos-guard-dog` and `myos-guard-dog`.
-- Pin development, CI, installation and support to Node 24 LTS, rejecting unverified older and newer majors before installation.
+- Pin development, CI, installation and runtime support to Node 24 LTS. The shell installer rejects other majors before npm runs, and every shipped executable rejects them before Guard Dog operates.
 
 ## 4.0.1
 

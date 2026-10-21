@@ -1,11 +1,11 @@
 {
-  "version": "4.0.2",
+  "version": "5.1.0",
   "agentId": "guard-dog",
-  "loopBoundary": "Read-only package-security evidence, verdict drafting without enforcement, and GuardDog-owned local scan records.",
+  "loopBoundary": "Read-only local workspace and package-security evidence, verdict drafting without enforcement, and Guard Dog-owned local scan records.",
   "autonomousActions": [
-    "Read-only dependency, package, CVE, reputation, pattern, and threat-intel scans",
+    "Read-only workspace, dependency, package, CVE, reputation, pattern, and threat-intel scans",
     "Report or verdict drafting without enforcement",
-    "GuardDog-owned local cache and scan-history writes"
+    "Guard Dog-owned local cache and scan-history writes"
   ],
   "approvalRequiredActions": [
     "Approval required before adding any future external notification or message-send capability",
@@ -17,11 +17,26 @@
     "Approval required for security verdict, allowlist, and policy changes"
   ],
   "reflectionQuestions": [
-    { "id": "guard_dog_improve", "prompt": "How could this get even better?" },
-    { "id": "guard_dog_more", "prompt": "What else can I do?" },
-    { "id": "guard_dog_automation", "prompt": "What can be more automated within our safeguards?" },
-    { "id": "guard_dog_evidence", "prompt": "What evidence would prove this conclusion is correct?" },
-    { "id": "guard_dog_follow_up", "prompt": "What safe internal follow-up remains undone?" }
+    {
+      "id": "guard_dog_improve",
+      "prompt": "How could this get even better?"
+    },
+    {
+      "id": "guard_dog_more",
+      "prompt": "What else can I do?"
+    },
+    {
+      "id": "guard_dog_automation",
+      "prompt": "What can be more automated within our safeguards?"
+    },
+    {
+      "id": "guard_dog_evidence",
+      "prompt": "What evidence would prove this conclusion is correct?"
+    },
+    {
+      "id": "guard_dog_follow_up",
+      "prompt": "What safe internal follow-up remains undone?"
+    }
   ],
-  "lastAutonomizerUpdate": "2026-09-21T00:00:00.000Z"
+  "lastAutonomizerUpdate": "2026-10-12T00:00:00.000Z"
 }

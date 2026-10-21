@@ -33,7 +33,7 @@ function readJson(path, fallback) {
     return value;
   } catch (error) {
     if (error.code === 'ENOENT') return fallback;
-    throw new Error(`Cannot read Guardog config at ${path}. Existing file was preserved: ${error.message}`);
+    throw new Error(`Cannot read MyOS Guard Dog config at ${path}. Existing file was preserved: ${error.message}`);
   }
 }
 
@@ -126,7 +126,7 @@ export function installGitHook() {
   if (existingPath && existingPath !== hooksDir) {
     return {
       ok: false,
-      message: `Existing global git hooksPath is set to ${existingPath}. Guardog did not overwrite it.`
+      message: `Existing global git hooksPath is set to ${existingPath}. MyOS Guard Dog did not overwrite it.`
     };
   }
   const script = renderGitHook(readFileSync(hookSource, 'utf-8'), { root, node: process.execPath });
@@ -141,18 +141,18 @@ export function installGitHook() {
 
 export function removeGitHook() {
   if (process.platform === 'win32') {
-    return { ok: true, message: 'No Windows global git hook was installed by Guardog.' };
+    return { ok: true, message: 'No Windows global git hook was installed by MyOS Guard Dog.' };
   }
   const hooksDir = join(guardogHome(), 'hooks');
   const existing = spawnSync('git', ['config', '--global', '--get', 'core.hooksPath'], { encoding: 'utf-8' });
   const existingPath = existing.status === 0 ? existing.stdout.trim() : '';
   if (existingPath !== hooksDir) {
-    return { ok: true, message: 'Guardog is not the active global git hooksPath.' };
+    return { ok: true, message: 'MyOS Guard Dog is not the active global git hooksPath.' };
   }
   const result = spawnSync('git', ['config', '--global', '--unset', 'core.hooksPath'], { encoding: 'utf-8' });
   return {
     ok: result.status === 0,
-    message: result.status === 0 ? 'Guardog global git hook disabled.' : result.stderr || 'git config unset failed'
+    message: result.status === 0 ? 'MyOS Guard Dog global git hook disabled.' : result.stderr || 'git config unset failed'
   };
 }
 
@@ -199,9 +199,9 @@ export async function runSetup(options = {}) {
   const config = loadUserConfig();
   const failures = [];
 
-  console.log('\nGuardog setup');
+  console.log('\nMyOS Guard Dog setup');
   console.log(`State folder: ${guardogHome()}`);
-  console.log('Guardog checks public package and security databases. It does not use AI tokens.');
+  console.log('MyOS Guard Dog checks public package and security databases. It does not use AI tokens.');
   console.log('OSV works immediately with no account or key. Nothing runs in the background unless you opt in.\n');
 
   const vtKey = await readHiddenKey(options.input || input, options.output || output);
@@ -219,7 +219,7 @@ export async function runSetup(options = {}) {
   try {
   const advanced = await question('Set up optional nightly scans or a global git hook? [y/N] ');
   if (yes(advanced)) {
-    const nightly = await question('Run Guardog every night at midnight? [y/N] ');
+    const nightly = await question('Run MyOS Guard Dog every night at midnight? [y/N] ');
     const enableNightly = yes(nightly);
     if (enableNightly) {
       const root = await question(`Project folder to scan nightly [${process.cwd()}]: `);
@@ -247,12 +247,12 @@ export async function runSetup(options = {}) {
   recordResilienceCycle({ phase: 'install', health });
 
   if (failures.length) {
-    const error = new Error(`Guardog setup incomplete: ${failures.join('; ')}`);
+    const error = new Error(`MyOS Guard Dog setup incomplete: ${failures.join('; ')}`);
     error.exitCode = 2;
     throw error;
   }
 
-  console.log('\nGuardog setup complete.');
+  console.log('\nMyOS Guard Dog setup complete.');
   console.log('Try it: `myos-guard-dog analyze lodash npm`');
   return { status: 'complete', config };
 }
@@ -271,7 +271,7 @@ export function printDoctor(options = {}) {
     ['Last nightly scan', health.lastRun ? `${health.lastRun.finishedAt}: ${health.lastRun.status}, ${health.lastRun.dependencyCount} dependencies` : 'never verified'],
     ['External notifications', 'none']
   ];
-  console.log('\nGuardog doctor');
+  console.log('\nMyOS Guard Dog doctor');
   for (const [label, value] of checks) {
     console.log(`${label}: ${value}`);
   }

@@ -1,7 +1,12 @@
+## Release completion
+
+- For authorized changes in this repository, completion includes an intentional commit and push to the configured upstream.
+- Do not report work as done until the remote branch and any release tag have been read back and verified.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **guardog** (948 symbols, 1505 relationships, 48 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **guardog** (2000 symbols, 3144 relationships, 109 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

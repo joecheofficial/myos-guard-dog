@@ -11,9 +11,31 @@ test('release metadata exposes only the canonical package and command names', ()
   assert.equal(manifest.name, 'myos-guard-dog');
   assert.deepEqual(Object.keys(manifest.bin).sort(), ['myos-guard-dog', 'myos-guard-dog-scan']);
   assert.equal(manifest.repository.url, 'git+https://github.com/josephtandle/myos-guard-dog.git');
-  assert.equal(manifest.engines.node, '24.x');
+  assert.equal(manifest.engines.node, '22.x || 24.x');
   assert.equal(fs.readFileSync(path.join(root, '.nvmrc'), 'utf8').trim(), '24');
   assert.equal(fs.readFileSync(path.join(root, '.node-version'), 'utf8').trim(), '24');
+});
+
+test('public release surfaces do not expose obsolete Guardog names or paths', () => {
+  const root = path.resolve(__dirname, '..');
+  const publicFiles = [
+    'INDEX.md',
+    'bin/cron-nightly-scan.sh',
+    'bin/npm-postinstall-hook.sh',
+    'bin/nightly-scan.js',
+    'src/env-loader.js',
+    'src/guarded-install.js',
+    'src/health.js',
+    'src/scheduler.js',
+    'src/setup.js'
+  ];
+  for (const relative of publicFiles) {
+    const source = fs.readFileSync(path.join(root, relative), 'utf8')
+      .replace(/^const LEGACY_RUNNER_HEADER = .*$/m, '');
+    assert.doesNotMatch(source, /\bGuardog\b|~\/guardog\b/, relative);
+  }
+  assert.equal(fs.existsSync(path.join(root, 'guardog.md')), false);
+  assert.equal(fs.existsSync(path.join(root, 'myos-guard-dog.md')), true);
 });
 
 // Real packed installation on each platform, including paths containing spaces.
@@ -28,6 +50,8 @@ test('packed release installs and runs without workspace helpers', () => {
     assert.equal(pack.status, 0, pack.stderr);
     const artifact = JSON.parse(pack.stdout)[0];
     assert.equal(artifact.files.some(f => /telegram/i.test(f.path)), false);
+    assert.equal(artifact.files.some(f => f.path === 'myos-guard-dog.md'), true);
+    assert.equal(artifact.files.some(f => f.path === 'guardog.md'), false);
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ private: true }));
     const install = run([npmCli, 'install', '--ignore-scripts', '--no-audit', '--no-fund', path.join(dir, artifact.filename)]);
     assert.equal(install.status, 0, install.stderr);

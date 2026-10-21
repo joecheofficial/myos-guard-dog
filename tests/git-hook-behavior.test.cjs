@@ -89,7 +89,7 @@ test('pre-commit hook audits staged lockfile-only changes', () => {
   assert.equal(result.status, 1, result.output);
 });
 
-test('installed hook uses its pinned Node executable outside the installer PATH', async () => {
+test('installed hook uses its pinned Node executable outside the installer PATH', { skip: process.platform === 'win32' }, async () => {
   const { renderGitHook } = await import('../src/setup.js');
   const result = runHook({
     staged: { private: true, overrides: { 'bad-package': '1.0.0' } },

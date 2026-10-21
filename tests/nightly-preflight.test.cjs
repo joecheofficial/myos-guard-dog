@@ -20,7 +20,7 @@ test('the nightly API repairs a missing opted-in schedule and records the repair
   };
   const scanner = () => ({ status: 0, stdout: JSON.stringify({ status: 'complete', dependencyCount: 2, dangerousCount: 0, issues: [] }) });
   try {
-    const receipt = runNightly({ roots: [root], run: scanner, healthOptions: { platform: 'linux', run: scheduler } });
+    const receipt = runNightly({ advisoryFirst: false, roots: [root], run: scanner, healthOptions: { platform: 'linux', run: scheduler } });
     assert.equal(writes, 1, 'daily API must restore the opted-in missing job');
     assert.equal(receipt.status, 'complete');
     assert.equal(receipt.preflight.schedule.registered, true);
@@ -31,7 +31,7 @@ test('the nightly API repairs a missing opted-in schedule and records the repair
     assert.equal(receipt.resilience.lastPhase, 'nightly');
     assert.equal(receipt.resilience.healthyStreak, 1);
     assert.equal(JSON.parse(fs.readFileSync(path.join(process.env.GUARDOG_HOME, 'data', 'resilience-state.json'))).cycles, 1);
-    const second = runNightly({ roots: [root], run: scanner, healthOptions: { platform: 'linux', run: scheduler } });
+    const second = runNightly({ advisoryFirst: false, roots: [root], run: scanner, healthOptions: { platform: 'linux', run: scheduler } });
     assert.equal(second.status, 'complete');
     assert.equal(writes, 1, 'daily repair must be idempotent');
   } finally { if (previous === undefined) delete process.env.GUARDOG_HOME; else process.env.GUARDOG_HOME = previous; }
@@ -52,11 +52,11 @@ test('unresolved schedule health survives a clean scan; a later healthy scan rec
     cron = options.input; return { status: 0, stdout: '' };
   };
   try {
-    let receipt = runNightly({ roots: [root], run: scanner, healthOptions: { platform: 'linux', run: () => ({ status: 1, stderr: 'permission denied' }) } });
+    let receipt = runNightly({ advisoryFirst: false, roots: [root], run: scanner, healthOptions: { platform: 'linux', run: () => ({ status: 1, stderr: 'permission denied' }) } });
     assert.equal(receipt.status, 'incomplete');
     assert.equal(receipt.preflight.ok, false);
     assert.match(receipt.issues.join(' '), /permission denied/);
-    receipt = runNightly({ roots: [root], run: scanner, healthOptions: { platform: 'linux', run: scheduler } });
+    receipt = runNightly({ advisoryFirst: false, roots: [root], run: scanner, healthOptions: { platform: 'linux', run: scheduler } });
     assert.equal(receipt.status, 'complete', 'the failed preceding receipt must not poison recovery');
     assert.equal(receipt.preflight.ok, true);
     assert.equal('lastRun' in receipt.preflight, false);
@@ -98,7 +98,7 @@ test('large projects receive the remaining overall deadline instead of a five-mi
   fs.writeFileSync(path.join(root, 'package.json'), '{}');
   try {
     let timeout;
-    const receipt = runNightly({ roots: [root], timeoutMs: 3600000, healthOptions: { platform: 'linux', run: () => ({ status: 0, stdout: '' }) }, run: (_, args, options) => {
+    const receipt = runNightly({ advisoryFirst: false, roots: [root], timeoutMs: 3600000, healthOptions: { platform: 'linux', run: () => ({ status: 0, stdout: '' }) }, run: (_, args, options) => {
       timeout = options.timeout;
       return { status: 0, stdout: JSON.stringify({ status: 'complete', dependencyCount: 100, dangerousCount: 0, issues: [] }) };
     } });
@@ -119,7 +119,7 @@ test('nightly scan stops after a child reports VirusTotal quota exhaustion', asy
   fs.writeFileSync(path.join(root, 'nested', 'package.json'), '{}');
   let calls = 0;
   try {
-    const receipt = runNightly({ roots: [root], healthOptions: { platform: 'linux', run: () => ({ status: 0, stdout: '' }) }, run: () => {
+    const receipt = runNightly({ advisoryFirst: false, roots: [root], healthOptions: { platform: 'linux', run: () => ({ status: 0, stdout: '' }) }, run: () => {
       calls++;
       return { status: 2, stdout: JSON.stringify({ status: 'incomplete', dependencyCount: 1, dangerousCount: 0, quotaExhausted: true, issues: ['VirusTotal daily quota exhausted.'] }) };
     } });

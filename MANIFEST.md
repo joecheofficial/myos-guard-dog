@@ -1,15 +1,16 @@
-# MyOS Guard Dog 4.0 operations
+# MyOS Guard Dog 5.1.0 operations
 
 Guard Dog protects supported package workflows, not the entire operating system.
 
 ## Local state
 
-State is stored in `GUARDOG_HOME`, or `~/.guardog` by default.
+State is stored in `GUARDOG_HOME`, or `~/.guardog` by default. These legacy names are preserved for upgrade compatibility; do not rename the folder or environment variable.
 
 - `config.json`: selected scan roots, schedule consent and local run time.
 - `.env`: local VirusTotal credential, never include it in reports.
 - `bin/nightly-runner.cjs`: Guard Dog-owned scheduler entry point.
 - `data/last-nightly.json`: latest scan receipt, coverage and findings.
+- `data/scan-progress/`: per-project resume positions and current-run summaries; no cached clean verdicts.
 - `data/nightly.lock`: overlap protection for active nightly runs.
 - `data/resilience-state.json`: privacy-safe install/nightly verification history and recurring issue categories.
 

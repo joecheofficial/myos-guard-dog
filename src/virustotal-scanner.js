@@ -3,6 +3,7 @@
  * Scans packages for malicious code using VirusTotal API v3
  */
 
+import { createRequestPacer } from './request-pacer.js';
 import { VirusTotalQuota } from './virustotal-quota.js';
 
 // Share the request budget across every scanner using the same key in this process.
@@ -18,6 +19,7 @@ export class VirusTotalScanner {
     this.now = runtime.now || Date.now;
     this.wait = runtime.wait || (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
     this.fetch = runtime.fetch || ((...args) => globalThis.fetch(...args));
+    this.pace = runtime.pace || createRequestPacer(['vt',this.apiKey,this.baseUrl],{now:this.now,wait:this.wait});
     this.quota = runtime.quota || (Number.isInteger(config.virustotal.dailyRequestLimit)
       ? new VirusTotalQuota({ limit: config.virustotal.dailyRequestLimit })
       : null);
@@ -34,25 +36,36 @@ export class VirusTotalScanner {
       requestQueues.set(this.apiKey, queue);
     }
     const pending = queue.tail.then(async () => {
+      // A refused local quota cannot recover until the ledger's UTC day changes.
+      // Do not charge every remaining package another rate-limit wait.
+      const quotaDay = new Date(this.now()).toISOString().slice(0, 10);
+      if (queue.quotaBlockedDay === quotaDay) throw new Error('VirusTotal daily quota guard stopped this request before it was sent.');
+      return this.pace(REQUEST_INTERVAL_MS,async()=>{
       const delay = queue.nextAt - this.now();
       if (delay > 0) await this.wait(delay);
       queue.nextAt = this.now() + REQUEST_INTERVAL_MS;
       if (this.quota) {
         const reservation = this.quota.reserve();
         const allowed = reservation === true || reservation?.allowed === true;
-        if (!allowed) throw new Error('VirusTotal daily quota guard stopped this request before it was sent.');
+        if (!allowed) {
+          queue.quotaBlockedDay = new Date(this.now()).toISOString().slice(0, 10);
+          throw new Error('VirusTotal daily quota guard stopped this request before it was sent.');
+        }
       }
       // Waiting for a rate-limit slot must not consume the network timeout.
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.timeout);
       try {
-        const response = await this.fetch(url, { ...options, signal: controller.signal });
+        // The key travels in a custom x-apikey header, which fetch would forward
+        // to any redirect target. VirusTotal's API never needs a redirect.
+        const response = await this.fetch(url, { ...options, redirect: 'error', signal: controller.signal });
         // Consume the body within the same timeout, before releasing the queue.
         const data = response.ok ? await response.json() : null;
         return { response, data };
       } finally {
         clearTimeout(timeoutId);
       }
+      });
     });
     queue.tail = pending.then(() => undefined, () => undefined);
     return pending;

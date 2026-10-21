@@ -21,20 +21,26 @@ function runInstaller(nodeMajor) {
   return { result, npmCalled };
 }
 
-test('installer rejects Node 22 before invoking npm', () => {
-  const { result, npmCalled } = runInstaller(22);
+test('installer rejects Node 20 before invoking npm', { skip: process.platform === 'win32' }, () => {
+  const { result, npmCalled } = runInstaller(20);
   assert.equal(result.status, 1);
   assert.equal(npmCalled, false);
 });
 
-test('installer accepts Node 24 and reaches npm', () => {
+test('installer accepts Node 24 and reaches npm', { skip: process.platform === 'win32' }, () => {
   const { result, npmCalled } = runInstaller(24);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.equal(npmCalled, true);
 });
 
-test('installer rejects newer unverified Node majors before invoking npm', () => {
+test('installer rejects newer unverified Node majors before invoking npm', { skip: process.platform === 'win32' }, () => {
   const { result, npmCalled } = runInstaller(26);
   assert.equal(result.status, 1);
   assert.equal(npmCalled, false);
+});
+
+test('installer accepts Node 22 and reaches npm', { skip: process.platform === 'win32' }, () => {
+  const { result, npmCalled } = runInstaller(22);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(npmCalled, true);
 });

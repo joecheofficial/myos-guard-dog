@@ -30,11 +30,11 @@ export function loadEnvFile(path, { override = false, environment = process.env 
   try { text = readFileSync(path, 'utf8'); }
   catch (error) {
     if (error.code === 'ENOENT') return false;
-    throw new Error(`Cannot read Guardog environment file ${path} (${error.code || 'read error'})`);
+    throw new Error(`Cannot read MyOS Guard Dog environment file ${path} (${error.code || 'read error'})`);
   }
   let parsed;
   try { validateEnvironment(text); parsed = parseEnv(text); }
-  catch { throw new Error(`Invalid Guardog environment file ${path}; existing environment was preserved`); }
+  catch { throw new Error(`Invalid MyOS Guard Dog environment file ${path}; existing environment was preserved`); }
   for (const [key, value] of Object.entries(parsed)) {
     if (override || !Object.hasOwn(environment, key)) environment[key] = value;
   }

@@ -1,10 +1,7 @@
 #!/bin/bash
 # Guard Dog npm postinstall hook
-# Add to any project's package.json:
-#   "scripts": { "postinstall": "~/guardog/bin/npm-postinstall-hook.sh" }
-#
-# Or install globally via .npmrc:
-#   echo "scripts-postinstall=~/guardog/bin/npm-postinstall-hook.sh" >> ~/.npmrc
+# Legacy/manual secondary scan. The supported pre-install gate is:
+#   myos-guard-dog install <package>
 
 GUARD_DOG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PKG_JSON="${INIT_CWD:-$(pwd)}/package.json"

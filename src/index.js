@@ -4,12 +4,13 @@
  * Main orchestrator that coordinates all modules
  */
 
-import { readFileSync, writeFileSync, existsSync, realpathSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, realpathSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { spawnSync } from 'child_process';
 import { createHash } from 'node:crypto';
 import { loadEnvFile } from './env-loader.js';
+import { assertSupportedNodeVersion } from './node-version.js';
 
 import { VirusTotalScanner } from './virustotal-scanner.js';
 import { ReputationChecker } from './reputation-checker.js';
@@ -18,6 +19,9 @@ import { PatternAnalyzer } from './pattern-analyzer.js';
 import { DecisionTree } from './decision-tree.js';
 import { ensureGuardogHome, guardogDataDir, guardogEnvPath, packageRoot } from './paths.js';
 import { runGuardedInstall } from './guarded-install.js';
+import { auditExitCode } from './scan-summary.js';
+import { inspectNpmArtifact } from './npm-artifact-inspector.js';
+import { inspectExactNpmRelease } from './npm-artifact-fetch.js';
 import { checkHealth } from './health.js';
 import {
   installGitHook,
@@ -31,11 +35,13 @@ import {
   saveUserConfig
 } from './setup.js';
 
+assertSupportedNodeVersion();
+
 // Load environment variables
 loadEnvFile(join(dirname(fileURLToPath(import.meta.url)), '../.env'));
 loadEnvFile(guardogEnvPath(), { override: true });
 
-export async function deriveVirusTotalTarget(reputationData, ecosystem) {
+export async function deriveVirusTotalTarget(reputationData, ecosystem, cache = null) {
   const registry = reputationData?.registry;
   if (!registry || !registry.tarball) {
     return null;
@@ -45,9 +51,14 @@ export async function deriveVirusTotalTarget(reputationData, ecosystem) {
     return registry.sha256;
   }
 
+  const integrity=/^sha(256|384|512)-([A-Za-z0-9+/]+={0,2})$/.exec(registry.integrity || '');
+  const cacheKey=['artifact-hash',registry.tarball,registry.integrity];
+  const cached=integrity?cache?.get(cacheKey,3600000):null;
+  if(typeof cached==='string' && /^[a-f0-9]{64}$/.test(cached))return cached;
+  let timeoutId;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    timeoutId = setTimeout(() => controller.abort(), 30000);
 
     const response = await fetch(registry.tarball, { signal: controller.signal });
     if (!response.ok) {
@@ -56,6 +67,7 @@ export async function deriveVirusTotalTarget(reputationData, ecosystem) {
     }
 
     const hash = createHash('sha256');
+    const integrityHash=integrity?createHash('sha'+integrity[1]):null;
     let totalBytes = 0;
     const maxBytes = 50 * 1024 * 1024;
 
@@ -67,13 +79,23 @@ export async function deriveVirusTotalTarget(reputationData, ecosystem) {
         return null;
       }
       hash.update(chunk);
+      integrityHash?.update(chunk);
     }
 
     clearTimeout(timeoutId);
-    return hash.digest('hex');
+    if(integrityHash && integrityHash.digest('base64')!==integrity[2])return null;
+    const target=hash.digest('hex');
+    if(integrity)cache?.set(cacheKey,target,3600000);
+    return target;
   } catch {
     return null;
-  }
+  } finally {clearTimeout(timeoutId);}
+}
+
+export function selectPyPiDistribution(registry, target = null) {
+  const files = registry?.distributions || [];
+  if (target) return files.find(file => file.sha256 && file.sha256.toLowerCase() === target.toLowerCase()) || null;
+  return files.length === 1 && files[0].sha256 ? files[0] : null;
 }
 
 export class GuardDog {
@@ -175,9 +197,17 @@ export class GuardDog {
 
     // Step 2: VirusTotal scan (if available)
     let vtTarget = target;
+    if (ecosystem === 'pypi' && reputationData?.registry) {
+      const selected = selectPyPiDistribution(reputationData.registry, target);
+      reputationData.registry.artifactCoverage = selected ? 'complete' : 'incomplete';
+      reputationData.registry.selectedDistribution = selected?.filename || null;
+      vtTarget = selected?.sha256 || null;
+      if (selected) console.log(`PyPI artifact selected: ${selected.filename}`);
+      else console.log('PyPI artifact coverage incomplete: choose the exact distribution SHA-256 for a multi-file release.');
+    }
     if (this.scanner) {
       if (!vtTarget && reputationData?.registry?.tarball) {
-        vtTarget = await deriveVirusTotalTarget(reputationData, ecosystem);
+        vtTarget = await deriveVirusTotalTarget(reputationData, ecosystem, this.auditCache);
         if (!vtTarget) {
           console.log('⚠️  VirusTotal scan skipped (could not derive package hash)');
         }
@@ -221,10 +251,10 @@ export class GuardDog {
       console.error('✗ CVE check failed:', error.message);
     }
 
-    // Step 4: Pattern analysis (analyze install scripts / main entry if available from registry)
-    console.log('🔎 Analyzing code patterns...');
+    // Step 4: Check registry description text; package source is not inspected.
+    console.log('🔎 Checking registry description patterns...');
     try {
-      // Use registry metadata as a lightweight code signal source
+      // Only registry metadata text is available in this scan path.
       const codeSnippets = {};
       if (reputationData?.registry?.description) {
         codeSnippets['description'] = reputationData.registry.description;
@@ -234,22 +264,26 @@ export class GuardDog {
       console.log(`Metadata text checks complete (score: ${patternResults.totalScore}); package source files were not scanned.`);
     } catch (error) {
       console.error('✗ Pattern analysis failed:', error.message);
+      patternResults = { failed: true, scope: 'registry_description_only' };
     }
 
     // Step 5: Decision tree evaluation
     console.log('🎯 Evaluating threat level...');
     const decision = this.decisionTree.evaluate(
       scanResults, reputationData, packageName,
-      cveResults, patternResults ? { suspicious: patternResults.suspiciousFiles > 0, score: patternResults.totalScore, severity: patternResults.combinedSeverity } : null,
+      cveResults, patternResults ? { suspicious: patternResults.suspiciousFiles > 0, score: patternResults.totalScore, severity: patternResults.combinedSeverity, scope: patternResults.scope, failed: patternResults.failed === true } : null,
       vtAttempted
     );
+    if (ecosystem === 'pypi' && reputationData?.registry?.selectedDistribution) {
+      decision.notes.push(`PyPI artifact verdict applies to ${reputationData.registry.selectedDistribution} only.`);
+    }
 
     // Print results
     console.log('\n' + this.decisionTree.formatDecision(decision));
 
     // Suggest code-level review for flagged packages
     if (decision.action === 'BARK' || decision.action === 'WHINE') {
-      console.log('\n💡 Code-level review: run /gstack-cso in Claude Code, or: bash bin/run-cso.sh <affected-path>');
+      console.log('\n💡 Review the exact package artifact and source before proceeding; this scan has not inspected package source files.');
     }
 
     const duration = Date.now() - startTime;
@@ -317,14 +351,19 @@ export class GuardDog {
   async batchAnalyze(packages) {
     console.log(`\n🐕 Guard Dog batch analysis: ${packages.length} packages\n`);
     
-    const results = [];
-    for (const pkg of packages) {
-      const result = await this.analyze(pkg.name, pkg.ecosystem, pkg.target, pkg.version);
-      results.push(result);
-      
-      // VirusTotal enforces its own request-level queue, including refreshes.
-      await new Promise(resolve => setTimeout(resolve, 250));
-    }
+    const results = new Array(packages.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < packages.length) {
+        const index = next++;
+        const pkg = packages[index];
+        results[index] = await this.analyze(pkg.name, pkg.ecosystem, pkg.target, pkg.version);
+
+        // VirusTotal enforces its own request-level queue, including refreshes.
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, packages.length) }, worker));
 
     // Summary
     const dangerous = results.filter(r => r.decision.action === 'BARK').length;
@@ -408,10 +447,15 @@ function usage() {
   console.log('  myos-guard-dog test                          - Run system test');
   console.log('  myos-guard-dog analyze <pkg> [eco] [target]  - Analyze one package');
   console.log('  myos-guard-dog batch <json-file>             - Batch analyze packages');
+  console.log('  myos-guard-dog artifact <file.tgz|npm:name@version> [--json] - Inspect exact npm archive bytes');
   console.log('  myos-guard-dog install [npm] <package>       - Gate exact npm artifacts; scripts stay disabled');
   console.log('  myos-guard-dog scan <project> [--json]       - Audit exact installed or locked npm versions');
+  console.log('  myos-guard-dog workspace <root> [--json|--sarif] - Scan local code, secrets and configuration');
+  console.log('    [--baseline file] [--write-baseline new-file] [--output new-file]');
+  console.log('    [--clamav /absolute/clamscan] [--include-dependencies] [--fail-on high|medium|low]');
+  console.log('    [--max-files N] [--max-file-bytes N] [--max-bytes N] [--max-depth N] [--timeout-ms N]');
   console.log('  myos-guard-dog nightly                       - Repair local health and scan configured roots');
-  console.log('  myos-guard-dog updates enable --workspace <folder> --time HH:MM');
+  console.log('  myos-guard-dog updates enable --workspace <folder> --time HH:MM [--files]');
   console.log('  myos-guard-dog updates disable|status       - Manage and verify the daily schedule');
   console.log('  myos-guard-dog hooks enable|disable|status   - Manage git dependency hook');
 }
@@ -421,6 +465,7 @@ function updatesCommand(action, args = []) {
   if (action === 'enable') {
     const roots = args.flatMap((arg, i) => arg === '--workspace' && args[i + 1] ? [resolve(args[i + 1])] : []);
     if (roots.length) config.scanRoots = roots;
+    if (args.includes('--files')) config.workspaceScan = true;
     const time = args.indexOf('--time');
     if (time !== -1) config.nightlyTime = args[time + 1];
     const result = installNightlySchedule(config);
@@ -431,7 +476,8 @@ function updatesCommand(action, args = []) {
     console.log(result.message);
     process.exitCode = result.ok ? 0 : 2;
   } else {
-    printDoctor();
+    const health = printDoctor();
+    process.exitCode = health.ok ? 0 : 2;
   }
 }
 
@@ -439,17 +485,26 @@ function hooksCommand(action) {
   const config = loadUserConfig();
   if (action === 'enable') {
     const result = installGitHook();
-    config.gitPreCommitHook = result.ok;
-    saveUserConfig(config);
+    if (result.ok) {
+      config.gitPreCommitHook = true;
+      saveUserConfig(config);
+    }
     console.log(result.message);
+    process.exitCode = result.ok ? 0 : 2;
   } else if (action === 'disable') {
     const result = removeGitHook();
-    config.gitPreCommitHook = false;
-    saveUserConfig(config);
+    if (result.ok) {
+      config.gitPreCommitHook = false;
+      saveUserConfig(config);
+    }
     console.log(result.message);
-  } else {
+    process.exitCode = result.ok ? 0 : 2;
+  } else if (action === 'status') {
     console.log(`Git pre-commit hook: ${config.gitPreCommitHook ? 'enabled' : 'disabled'}`);
     console.log('Guarded installs: use `myos-guard-dog install <package>` before dependency installs.');
+  } else {
+    console.error(`Unknown hooks action: ${action}`);
+    process.exitCode = 2;
   }
 }
 
@@ -473,6 +528,16 @@ async function main(argv = process.argv.slice(2)) {
     hooksCommand(args[1] || 'status');
   } else if (command === 'install') {
     await runGuardedInstall(args.slice(1), GuardDog);
+  } else if (command === 'workspace') {
+    try {
+      const { workspaceCommand } = await import('./workspace-cli.js');
+      process.exitCode = workspaceCommand(args.slice(1));
+    } catch {
+      const error = { schemaVersion: 1, status: 'incomplete', exitCode: 2, issues: [{ code: 'workspace_command_failed' }] };
+      if (args.includes('--json')) console.log(JSON.stringify(error));
+      else console.error('Workspace scan incomplete: invalid options, baseline, root, or output destination. Existing files are never overwritten.');
+      process.exitCode = 2;
+    }
   } else if (command === 'scan') {
     const project = resolve(args[1] || process.cwd());
     const manifest = project.endsWith('package.json') ? project : join(project, 'package.json');
@@ -504,7 +569,7 @@ async function main(argv = process.argv.slice(2)) {
 
     const spec = packageName.match(/^(.+)@([^@]+)$/);
     const result = await guardDog.analyze(spec ? spec[1] : packageName, ecosystem, target, spec ? spec[2] : null);
-    process.exitCode = result.decision.action === 'BARK' ? 1 : result.decision.coverage === 'incomplete' ? 2 : 0;
+    process.exitCode = auditExitCode([result]);
   } else if (command === 'batch') {
     // Batch analyze from JSON file
     const guardDog = new GuardDog();
@@ -515,9 +580,29 @@ async function main(argv = process.argv.slice(2)) {
     }
 
     const packages = JSON.parse(readFileSync(filePath, 'utf-8'));
-    await guardDog.batchAnalyze(packages);
+    const results = await guardDog.batchAnalyze(packages);
+    process.exitCode = auditExitCode(results);
+  } else if (command === 'artifact') {
+    const file = args[1];
+    if (!file || file.startsWith('--')) throw new Error('Usage: myos-guard-dog artifact <file.tgz|npm:name@version> [--json]');
+    let report;
+    try {
+      if (file.startsWith('npm:')) report = await inspectExactNpmRelease(file);
+      else {
+        if (statSync(file).size > 50 * 1024 * 1024) throw new Error('Package archive exceeds compressed scan limit');
+        report = { source: 'local_archive', ...inspectNpmArtifact(readFileSync(file)) };
+      }
+    } catch (error) { error.exitCode = 2; throw error; }
+    if (args.includes('--json')) console.log(JSON.stringify(report));
+    else {
+      console.log(`Inspected ${report.sourceFiles} source files in ${report.entries} archive entries; bounded static coverage.`);
+      for (const finding of report.findings) console.log(`${finding.severity.toUpperCase()}: ${finding.file}: ${finding.rule}`);
+      console.log(`Result: ${report.risk}. No static scan can certify a package is safe.`);
+    }
+    process.exitCode = report.risk === 'high' ? 1 : report.risk === 'none' ? 0 : 2;
   } else {
     usage();
+    process.exitCode = !command || ['--help', '-h', 'help'].includes(command) ? 0 : 2;
   }
 }
 

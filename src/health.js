@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { ensureGuardogHome, guardogConfigPath, guardogEnvPath, guardogHome } from './paths.js';
 import { inspectSchedule, registerSchedule, inspectRunner, repairRunner, scheduleSpec } from './scheduler.js';
 
-/** Repair only local state and an already opted-in missing Guardog schedule. */
+/** Repair only local state and an already opted-in missing MyOS Guard Dog schedule. */
 export function checkHealth(options = {}) {
   const issues = [];
   const repairs = [];
@@ -35,7 +35,7 @@ export function checkHealth(options = {}) {
     } else {
       try {
         const result = registerSchedule(config, options);
-        if (result.ok) repairs.push('Restored the previously enabled Guardog schedule.');
+        if (result.ok) repairs.push('Restored the previously enabled MyOS Guard Dog schedule.');
         else issues.push(result.message);
         schedule = inspectSchedule(config, options);
       } catch (error) { issues.push('Schedule repair failed: ' + error.message); }
@@ -77,8 +77,10 @@ export function checkHealth(options = {}) {
       if (lastRun.status !== 'complete') issues.push('Latest nightly scan status: ' + lastRun.status);
     }
   }
+  const workspaceProtection = { enabled: config.workspaceScan === true, lastCoverage: lastRun?.workspace?.coverage || null };
+  if (config.nightlyUpdates === true && config.workspaceScan === true && options.checkLastRun !== false && lastRun?.workspace?.coverage?.complete !== true) issues.push('Latest nightly run has no complete local workspace coverage.');
   let configured = Boolean(process.env.VIRUSTOTAL_API_KEY);
   try { configured ||= existsSync(guardogEnvPath()) && /^VIRUSTOTAL_API_KEY=.+$/m.test(readFileSync(guardogEnvPath(), 'utf8')); }
   catch { issues.push('Local VirusTotal configuration cannot be read.'); }
-  return { taskClass: 'security_health', ok: issues.length === 0, stateFolder: guardogHome(), scanRoots: roots, nightlyEnabled: config.nightlyUpdates === true, schedule, runner, lastRun, virusTotal: configured ? 'configured (authentication not tested)' : 'optional/not configured', osv: 'available without a key (connectivity not tested)', repairs, issues };
+  return { taskClass: 'security_health', ok: issues.length === 0, stateFolder: guardogHome(), scanRoots: roots, workspaceProtection, nightlyEnabled: config.nightlyUpdates === true, schedule, runner, lastRun, virusTotal: configured ? 'configured (authentication not tested)' : 'optional/not configured', osv: 'available without a key (connectivity not tested)', repairs, issues };
 }

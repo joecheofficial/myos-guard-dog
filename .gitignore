@@ -28,10 +28,13 @@ coverage/
 dist/
 build/
 
-# Guardog runtime data
+# MyOS Guard Dog runtime data
 data/
 logs/
 archive/
+
+# Local writer recovery artifacts
+.myos-writer-patches/
 
 # Internal docs (not needed for distribution)
 IMPLEMENTATION.md
