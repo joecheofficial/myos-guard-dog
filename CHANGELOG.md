@@ -1,3 +1,17 @@
+# Runtime advisories review fixes: 5.2.1
+
+- fnm under `~/Library/Application Support/fnm` (and nvm, volta, asdf, mise, pnpm, n trees) is classified as a version manager before vendor rules, so its vulnerable versions are HIGH instead of vendor-managed.
+- Cron-safe tools: `lsof`, `ps` and `brew` resolve through `/usr/sbin`, `/sbin`, `/opt/homebrew/bin` and `/usr/local/bin` even with `PATH=/usr/bin:/bin`. A failed process listing or `lsof` read now makes the result incomplete instead of silently complete.
+- Windows probes `node.exe` on PATH plus the running executable and skips the process scan with a note that does not mark the run incomplete.
+- Runtime status is settled before the optional Vercel step. Vercel requests time out after 15 seconds within a 45-second budget, paginate, and keep team results when the personal scope fails. The nightly retries once with `--no-vercel` if the first attempt dies.
+- A missing release schedule makes the result incomplete, and the nightly records runtime issues whatever the status.
+- Manager-installed versions that are not running, not on PATH and not the manager default are reported as medium "installed, inactive" with an uninstall command. An unresolved default is treated as active. Manager fix commands now install, set the default and uninstall the old version.
+- Fix plans: each binary fix is one `set -euo pipefail` subshell, so a failed GPG signature or checksum stops before anything is installed. Signatures are checked with `gpgv` against the nodejs/release-keys keyring. Every interpolated value is shell-quoted and release versions must match `vX.Y.Z`.
+- Unpatched Homebrew kegs are never overwritten: the verified build goes to `~/.local/node-vX.Y.Z` to be placed first on PATH, and `brew upgrade` restores the normal path when it ships. Other replaced binaries are backed up to `~/.guardog/runtime-backups`, not next to the binary.
+- Discovery adds `/usr/local/bin/node`, mise, pnpm env, `~/bin` and the running executable. Version-manager shims (Volta, asdf, mise, nodenv, proto) are labelled as shims instead of broken binaries.
+- A failed advisory fetch falls back to the last good copy from the past 30 days, reported as a note. Process command lines are redacted for Stripe/GitHub/Slack tokens, `--token`/`--key`/`--password` values, URL credentials and `*_TOKEN=`/`*_KEY=` assignments.
+- Install documentation points at `github:joecheofficial/myos-guard-dog`; old URLs redirect.
+
 # Runtime advisories: 5.2.0
 
 - Add `myos-guard-dog runtime [--json] [--fix-plan] [--no-cache]`. It checks the Node.js runtimes themselves, not only packages: every `node` on PATH, Homebrew kegs and opt links, nvm, fnm, volta, asdf, n, the All Sorted runtime (`~/.local/allsorted-node`) and the executables of running node processes. Runtimes are deduplicated by real path plus device and inode. A binary that cannot run `-v` is reported as unknown and never stops the check.
