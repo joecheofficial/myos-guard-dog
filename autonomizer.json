@@ -1,5 +1,5 @@
 {
-  "version": "5.1.0",
+  "version": "5.2.0",
   "agentId": "guard-dog",
   "loopBoundary": "Read-only local workspace and package-security evidence, verdict drafting without enforcement, and Guard Dog-owned local scan records.",
   "autonomousActions": [

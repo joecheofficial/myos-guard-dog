@@ -454,6 +454,7 @@ function usage() {
   console.log('    [--baseline file] [--write-baseline new-file] [--output new-file]');
   console.log('    [--clamav /absolute/clamscan] [--include-dependencies] [--fail-on high|medium|low]');
   console.log('    [--max-files N] [--max-file-bytes N] [--max-bytes N] [--max-depth N] [--timeout-ms N]');
+  console.log('  myos-guard-dog runtime [--json] [--fix-plan] - Check installed and running Node.js runtimes for security releases');
   console.log('  myos-guard-dog nightly                       - Repair local health and scan configured roots');
   console.log('  myos-guard-dog updates enable --workspace <folder> --time HH:MM [--files]');
   console.log('  myos-guard-dog updates disable|status       - Manage and verify the daily schedule');
@@ -543,6 +544,9 @@ async function main(argv = process.argv.slice(2)) {
     const manifest = project.endsWith('package.json') ? project : join(project, 'package.json');
     const result = spawnSync(process.execPath, [join(packageRoot(), 'bin', 'scan-deps.js'), manifest, ...args.slice(2)], { stdio: 'inherit' });
     process.exitCode = result.status ?? 2;
+  } else if (command === 'runtime') {
+    const { runtimeCommand } = await import('./runtime-advisories.js');
+    process.exitCode = await runtimeCommand(args.slice(1));
   } else if (command === 'nightly') {
     const result = spawnSync(process.execPath, [join(packageRoot(), 'bin', 'nightly-scan.js')], { stdio: 'inherit' });
     if (result.error) {
