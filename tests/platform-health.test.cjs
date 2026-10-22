@@ -36,6 +36,9 @@ test('schedule installation uses injected scheduler, persists a selected root an
 test('an empty nightly scan is incomplete and leaves an honest receipt', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'guardog-nightly-'));
   const home = path.join(root, 'state');
+  fs.mkdirSync(home);
+  // This inventory-only test must not probe the runner's Node binaries/network.
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ runtimeAdvisories: false }));
   const result = spawnSync(process.execPath, [path.resolve(__dirname, '../bin/nightly-scan.js')], {
     encoding: 'utf8', env: { ...process.env, GUARDOG_HOME: home, GUARDOG_WORKSPACE: root },
   });
@@ -43,6 +46,7 @@ test('an empty nightly scan is incomplete and leaves an honest receipt', () => {
   const receipt = JSON.parse(fs.readFileSync(path.join(home, 'data', 'last-nightly.json')));
   assert.equal(receipt.status, 'incomplete');
   assert.equal(receipt.dependencyCount, 0);
+  assert.equal(receipt.runtime, undefined);
 });
 
 test('Windows task XML keeps paths with spaces and ampersands outside shell parsing', async () => {
