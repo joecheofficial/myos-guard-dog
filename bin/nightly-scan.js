@@ -86,7 +86,9 @@ function performNightly(options) {
     receipt.runtime = runtime;
     receipt.runtimeHighCount = (runtime.findings || []).filter(f => f.severity === 'high').length;
     for (const finding of (runtime.findings || []).filter(f => f.severity === 'high')) receipt.issues.push(`HIGH runtime: ${finding.path} ${finding.version} is ${finding.kind === 'runtime_eol' ? 'end of life' : 'vulnerable, fixed in ' + finding.fixedIn}. ${finding.action}`);
-    if (runtime.status === 'incomplete') receipt.issues.push(...(runtime.issues || ['Runtime advisory check incomplete.']).map(issue => 'Runtime: ' + issue));
+    // Missing runtime evidence is surfaced whatever the status, so it never looks clean.
+    receipt.issues.push(...(runtime.issues || []).map(issue => 'Runtime: ' + issue));
+    if (runtime.status === 'incomplete' && !(runtime.issues || []).length) receipt.issues.push('Runtime: advisory check incomplete.');
   }
   // Opted-in local pass runs before network-dependent package audits.
   if (config.workspaceScan === true) {
