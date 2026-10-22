@@ -170,6 +170,9 @@ export function inspectNpmArtifact(input, limits = {}) {
     const rawName = field(header, 345, 155) ? `${field(header, 345, 155)}/${field(header, 0, 100)}` : field(header, 0, 100);
     if (type === 'x') {
       pendingPath = paxPath(tar.subarray(start, end));
+    } else if (['package', 'package/'].includes(pendingPath || rawName)) {
+      if (type !== '5' || size !== 0 || pendingPath !== null) throw new Error('Unsafe package root directory entry');
+      // Some registry archives explicitly declare their root directory. No payload is read.
     } else {
       const name = safeName(pendingPath || rawName);
       pendingPath = null;

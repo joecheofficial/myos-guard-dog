@@ -143,3 +143,19 @@ test('student-facing exact npm scan verifies identity, host and digest', async (
     ? { ok: true, body: (async function* () { yield Buffer.from('wrong'); })() }
     : { ok: true, json: async () => ({ name: 'child', version: '2.0.0', dist: { tarball, integrity } }) }), /digest mismatch/);
 });
+
+test('ordinary zero-length package root directory entries are supported', async () => {
+  const { inspectNpmArtifact } = await import('../src/npm-artifact-inspector.js');
+  for (const name of ['package', 'package/']) {
+    const report=inspectNpmArtifact(archive([{name,type:'5'},packageEntry(),{name:'package/index.js',body:'export const x=1;'}]));
+    assert.equal(report.risk,'none');
+    assert.equal(report.sourceFiles,1);
+  }
+});
+
+test('root-directory compatibility never admits payloads, links or outside paths', async () => {
+  const { inspectNpmArtifact } = await import('../src/npm-artifact-inspector.js');
+  for (const entry of [{name:'package',type:'0',body:'x'},{name:'package',type:'2'},{name:'package',type:'5',body:'x'},{name:'package/',type:'5',body:'x'},{name:'package/',type:'0',body:'x'},{name:'package/',type:'2'},{name:'other',type:'5'},{name:'package/../',type:'5'}]) {
+    assert.throws(()=>inspectNpmArtifact(archive([entry,packageEntry()])),/outside package|Unsafe/);
+  }
+});

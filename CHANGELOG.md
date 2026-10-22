@@ -1,3 +1,7 @@
+# Unreleased, npm archive compatibility (2026-10-22)
+
+Accept ordinary zero-length `package` root directory records in verified npm tarballs. Payload-bearing roots, links and outside-root paths still fail closed. This fixes inspection of official archives such as @js-sdsl/ordered-map without changing install approvals, integrity checks or required VirusTotal evidence.
+
 # Runtime advisories review fixes: 5.2.1
 
 - fnm under `~/Library/Application Support/fnm` (and nvm, volta, asdf, mise, pnpm, n trees) is classified as a version manager before vendor rules, so its vulnerable versions are HIGH instead of vendor-managed.
