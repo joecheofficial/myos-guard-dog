@@ -77,6 +77,10 @@ export function checkHealth(options = {}) {
       if (lastRun.status !== 'complete') issues.push('Latest nightly scan status: ' + lastRun.status);
     }
   }
+  // Runtime advisories are reported whenever a receipt has them, independent of schedule state.
+  if (options.checkLastRun !== false) {
+    for (const finding of (lastRun?.runtime?.findings || []).filter(f => f?.severity === 'high').slice(0, 10)) issues.push(`HIGH: Node runtime ${finding.path} ${finding.version} is ${finding.kind === 'runtime_eol' ? 'end of life' : 'vulnerable (fixed in ' + finding.fixedIn + ')'}. Run myos-guard-dog runtime --fix-plan.`);
+  }
   const workspaceProtection = { enabled: config.workspaceScan === true, lastCoverage: lastRun?.workspace?.coverage || null };
   if (config.nightlyUpdates === true && config.workspaceScan === true && options.checkLastRun !== false && lastRun?.workspace?.coverage?.complete !== true) issues.push('Latest nightly run has no complete local workspace coverage.');
   let configured = Boolean(process.env.VIRUSTOTAL_API_KEY);

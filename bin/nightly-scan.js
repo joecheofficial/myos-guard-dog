@@ -14,6 +14,7 @@ import { checkHealth } from '../src/health.js';
 import { recordResilienceCycle } from '../src/resilience-loop.js';
 import { scanWorkspace, within } from '../src/workspace-scan.js';
 import { assertSupportedNodeVersion } from '../src/node-version.js';
+import { runRuntimeCheckSync } from '../src/runtime-advisories.js';
 
 assertSupportedNodeVersion();
 
@@ -76,6 +77,17 @@ function performNightly(options) {
     preflight = { checkedAt: new Date().toISOString(), ok: false, repairs: [], issues: ['Health preflight failed: ' + error.message] };
   }
   const receipt = { taskClass: 'security_scan', startedAt: new Date().toISOString(), status: 'incomplete', roots, projectsScanned: 0, dependencyCount: 0, dangerousCount: 0, suspiciousCount: 0, preflight, issues: preflight.issues.map(issue => 'Health: ' + issue), boundaries: { depthLimited: 0, unreadable: 0, samples: [] }, coverage: { projectsWithoutInventory: 0, samples: [] } };
+  // Runtime advisories: the Node binaries themselves, not only packages. Library callers
+  // opt in with options.runtimeCheck; the CLI enables it unless config.runtimeAdvisories is false.
+  if (typeof options.runtimeCheck === 'function' && config.runtimeAdvisories !== false) {
+    let runtime;
+    try { runtime = options.runtimeCheck({ timeoutMs: Math.max(1, Math.min(120000, deadline - Date.now())) }); }
+    catch (error) { runtime = { status: 'incomplete', findings: [], highCount: 0, issues: ['Runtime advisory check failed: ' + error.message] }; }
+    receipt.runtime = runtime;
+    receipt.runtimeHighCount = (runtime.findings || []).filter(f => f.severity === 'high').length;
+    for (const finding of (runtime.findings || []).filter(f => f.severity === 'high')) receipt.issues.push(`HIGH runtime: ${finding.path} ${finding.version} is ${finding.kind === 'runtime_eol' ? 'end of life' : 'vulnerable, fixed in ' + finding.fixedIn}. ${finding.action}`);
+    if (runtime.status === 'incomplete') receipt.issues.push(...(runtime.issues || ['Runtime advisory check incomplete.']).map(issue => 'Runtime: ' + issue));
+  }
   // Opted-in local pass runs before network-dependent package audits.
   if (config.workspaceScan === true) {
     receipt.workspace = { enabled: true, findings: [], rootsScanned: 0, coverage: { complete: true, filesScanned: 0 }, issues: [] };
@@ -288,7 +300,8 @@ function performNightly(options) {
   }
   if (receipt.dependencyCount === 0 && !(partialOk && deferred.length)) receipt.issues.push('No installed dependencies were scanned.');
   const workspaceDanger = receipt.workspace?.findings.some(f => ['critical', 'high'].includes(f.severity));
-  receipt.status = workspaceDanger || receipt.dangerousCount > 0 ? 'dangerous' : receipt.issues.length ? 'incomplete' : receipt.suspiciousCount > 0 ? 'suspicious' : deferred.length ? 'partial' : 'complete';
+  const runtimeDanger = receipt.runtimeHighCount > 0;
+  receipt.status = workspaceDanger || runtimeDanger || receipt.dangerousCount > 0 ? 'dangerous' : receipt.issues.length ? 'incomplete' : receipt.suspiciousCount > 0 ? 'suspicious' : deferred.length ? 'partial' : 'complete';
   receipt.executionStatus=receipt.runnerFailure||receipt.timeouts?'interrupted':receipt.budgetStops?'budget_exhausted':'finished';
   receipt.finishedAt = new Date().toISOString();
   receipt.exitCode = receipt.status === 'incomplete' || receipt.status === 'suspicious' ? 2 : receipt.status === 'dangerous' ? 1 : 0; // 'partial' (opt-in) exits 0
@@ -301,7 +314,7 @@ function performNightly(options) {
     receipt.resilience = recordResilienceCycle({ phase: 'nightly', health, receipt });
   } catch (error) {
     receipt.issues.push('Resilience verification failed: ' + error.message);
-    receipt.status = workspaceDanger || receipt.dangerousCount > 0 ? 'dangerous' : 'incomplete';
+    receipt.status = workspaceDanger || runtimeDanger || receipt.dangerousCount > 0 ? 'dangerous' : 'incomplete';
     receipt.exitCode = receipt.status === 'dangerous' ? 1 : 2;
   }
   writeFileSync(temporary, JSON.stringify(receipt, null, 2), { mode: 0o600 });
@@ -311,7 +324,7 @@ function performNightly(options) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
-    const receipt = runNightly();
+    const receipt = runNightly({ runtimeCheck: ({ timeoutMs }) => runRuntimeCheckSync({ timeoutMs, script: join(packageRoot(), 'src', 'index.js') }) });
     console.log(JSON.stringify(receipt, null, 2));
     process.exitCode = receipt.exitCode;
   } catch (error) {

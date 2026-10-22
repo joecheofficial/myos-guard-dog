@@ -8,6 +8,7 @@ Official project: https://github.com/josephtandle/myos-guard-dog. The main comma
 3. For a keyless first check of an exact public npm version, use `myos-guard-dog artifact npm:<name>@<version>`. Read its findings and bounded coverage; no listed indicator is not a safety guarantee.
 4. Before supported npm installs, use `myos-guard-dog install <package>`. It also inspects exact npm archive bytes. Never fall back to a direct package-manager install when the gate blocks.
 5. Audit existing projects with `myos-guard-dog scan "<folder>"`. Report exact versions, suspicious findings and incomplete coverage, including transitive dependencies.
-6. Set up opted-in daily scans with `myos-guard-dog updates enable --workspace "<folder>" --time HH:MM`, inspect registration, and run `myos-guard-dog nightly` once.
+6. Check the Node.js runtimes themselves with `myos-guard-dog runtime`. Vulnerable or end-of-life runtimes exit 1; use `--fix-plan` for commands to review. Never replace binaries without the user's approval.
+7. Set up opted-in daily scans with `myos-guard-dog updates enable --workspace "<folder>" --time HH:MM`, inspect registration, and run `myos-guard-dog nightly` once.
 
 Missing VirusTotal reports, API failures, and unresolved versions are incomplete protection. Never represent them as safe. VirusTotal queries and OSV advisories do not replace operating-system antivirus. Never upload private files, erase findings, or weaken checks to make installation succeed.
