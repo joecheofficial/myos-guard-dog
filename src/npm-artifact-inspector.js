@@ -1,7 +1,7 @@
 import { gunzipSync } from 'node:zlib';
 import { posix } from 'node:path';
 
-const DEFAULT_LIMITS = Object.freeze({ compressed: 50 * 1024 * 1024, expanded: 128 * 1024 * 1024, entries: 10_000, textFile: 1024 * 1024, totalText: 12 * 1024 * 1024 });
+const DEFAULT_LIMITS = Object.freeze({ compressed: 50 * 1024 * 1024, expanded: 128 * 1024 * 1024, entries: 10_000, textFile: 8 * 1024 * 1024, manifest: 1024 * 1024, totalText: 12 * 1024 * 1024 });
 const textDecoder = new TextDecoder('utf-8', { fatal: true });
 const lifecycleNames = ['preinstall', 'install', 'postinstall', 'prepublish', 'prepublishOnly', 'prepare', 'postprepare'];
 const sourceFile = /\.(?:js|cjs|mjs|ts|tsx|jsx|mts|cts)$/i;
@@ -70,28 +70,41 @@ function entrypointPath(value) {
   return safeName(`package/${path}`);
 }
 
-function collectEntrypoints(manifest, paths) {
+function collectEntrypoints(manifest, paths, legacyMain, declarationOnly) {
   for (const value of [manifest.main, manifest.module]) {
     const path = entrypointPath(value);
     if (path) paths.add(path);
   }
+  const main = entrypointPath(manifest.main);
+  if (main) legacyMain.add(main);
+  legacyMain.delete(entrypointPath(manifest.module));
   const bins = typeof manifest.bin === 'string' ? [manifest.bin] : Object.values(manifest.bin || {});
   for (const value of bins) {
     const path = entrypointPath(value);
-    if (path) paths.add(path);
+    if (path) { paths.add(path); legacyMain.delete(path); }
   }
-  const walk = (value, depth = 0) => {
+  const runtimePaths = new Set(paths), declarations = new Set();
+  const walk = (value, depth = 0, typesOnly = false) => {
     if (depth > 12) throw new Error('Package exports nesting exceeds scan limit');
     if (typeof value === 'string') {
       if (value.startsWith('./')) {
         const path = entrypointPath(value);
-        if (path) paths.add(path);
+        if (path) {
+          paths.add(path); legacyMain.delete(path);
+          if (typesOnly && path.endsWith('.d.ts')) declarations.add(path);
+          else runtimePaths.add(path);
+        }
       }
     } else if (value && typeof value === 'object') {
-      for (const child of Object.values(value)) walk(child, depth + 1);
+      for (const [key, child] of Object.entries(value)) walk(child, depth + 1, typesOnly || key === 'types');
     }
   };
   walk(manifest.exports);
+  for (const path of declarations) if (!runtimePaths.has(path)) declarationOnly.add(path);
+}
+
+function approvedNodeShebang(bytes) {
+  return /^#![ \t]*\/(?:usr\/bin\/env[ \t]+node|usr\/bin\/node|usr\/local\/bin\/node)\r?\n/.test(bytes.toString('utf8'));
 }
 
 function inspectScript(findings, name, script) {
@@ -104,7 +117,8 @@ function inspectScript(findings, name, script) {
 }
 
 function maskNonCode(text) {
-  const output = [...text];
+  // Regex offsets and string indexing use UTF-16 code units, including surrogates.
+  const output = text.split('');
   let mode = 'code';
   for (let i = 0; i < text.length; i++) {
     const char = text[i], next = text[i + 1];
@@ -154,9 +168,14 @@ export function inspectNpmArtifact(input, limits = {}) {
   const findings = [];
   let offset = 0, entries = 0, textBytes = 0, sourceFiles = 0, manifest = false, pendingPath = null;
   const entrypoints = new Set();
+  const legacyMain = new Set();
+  const declarationOnly = new Set(), inspectedJavaScript = new Set();
   const seenFiles = new Set();
   const seenNames = new Map();
-  let truncated = false;
+  let truncated = false, archiveRoot = null;
+  const allowedRoots = new Set(['package']);
+  const basename = limits.expectName?.split('/').at(-1);
+  if (basename && /^[a-z0-9][a-z0-9._-]*$/i.test(basename)) allowedRoots.add(basename);
   while (offset + 512 <= tar.length) {
     const header = tar.subarray(offset, offset + 512);
     if (header.every(byte => byte === 0)) break;
@@ -171,37 +190,51 @@ export function inspectNpmArtifact(input, limits = {}) {
     if (type === 'x') {
       pendingPath = paxPath(tar.subarray(start, end));
     } else {
-      const name = safeName(pendingPath || rawName);
-      pendingPath = null;
-      const collisionKey = name.normalize('NFKC').toLowerCase();
-      if (seenNames.has(collisionKey)) throw new Error(`Archive paths collide on case-insensitive filesystems: ${seenNames.get(collisionKey)} and ${name}`);
-      seenNames.set(collisionKey, name);
-      if (type === '0') seenFiles.add(name);
-      if (type === '1' || type === '2') addFinding(findings, name, 'Archive contains a link entry that static source inspection cannot follow', 'incomplete');
-      else if (type !== '0' && type !== '5') addFinding(findings, name, `Unsupported tar entry type ${type}`, 'incomplete');
-      else if (type === '0' && name === 'package/package.json') {
-        if (manifest || size > cap.textFile) throw new Error('Missing, repeated, or oversized package manifest');
-        const parsed = JSON.parse(textDecoder.decode(tar.subarray(start, end)));
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid package manifest');
-        if (limits.expectName && parsed.name !== limits.expectName) throw new Error('Archive package name differs from registry identity');
-        if (limits.expectVersion && parsed.version !== limits.expectVersion) throw new Error('Archive package version differs from registry identity');
-        manifest = true;
-        collectEntrypoints(parsed, entrypoints);
-        for (const key of lifecycleNames) {
-          if (Object.hasOwn(parsed.scripts || {}, key)) inspectScript(findings, key, parsed.scripts[key]);
+      const effectiveName = pendingPath || rawName;
+      const root = effectiveName.split('/')[0];
+      if (!allowedRoots.has(root) || (archiveRoot !== null && archiveRoot !== root)) throw new Error('Archive entry is outside package root bound to registry identity');
+      archiveRoot = root;
+      const canonicalName = 'package' + effectiveName.slice(root.length);
+      if (['package', 'package/'].includes(canonicalName)) {
+        if (type !== '5' || size !== 0 || pendingPath !== null) throw new Error('Unsafe package root directory entry');
+        // Some registry archives explicitly declare their root directory. No payload is read.
+      } else {
+        const name = safeName(canonicalName);
+        pendingPath = null;
+        const collisionKey = name.normalize('NFKC').toLowerCase();
+        if (seenNames.has(collisionKey)) throw new Error(`Archive paths collide on case-insensitive filesystems: ${seenNames.get(collisionKey)} and ${name}`);
+        seenNames.set(collisionKey, name);
+        if (type === '0') seenFiles.add(name);
+        if (type === '1' || type === '2') addFinding(findings, name, 'Archive contains a link entry that static source inspection cannot follow', 'incomplete');
+        else if (type !== '0' && type !== '5') addFinding(findings, name, `Unsupported tar entry type ${type}`, 'incomplete');
+        else if (type === '0' && name === 'package/package.json') {
+          if (manifest || size > Math.min(cap.textFile, cap.manifest)) throw new Error('Missing, repeated, or oversized package manifest');
+          const parsed = JSON.parse(textDecoder.decode(tar.subarray(start, end)));
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid package manifest');
+          if (limits.expectName && parsed.name !== limits.expectName) throw new Error('Archive package name differs from registry identity');
+          if (limits.expectVersion && parsed.version !== limits.expectVersion) throw new Error('Archive package version differs from registry identity');
+          manifest = true;
+          collectEntrypoints(parsed, entrypoints, legacyMain, declarationOnly);
+          for (const key of lifecycleNames) {
+            if (Object.hasOwn(parsed.scripts || {}, key)) inspectScript(findings, key, parsed.scripts[key]);
+          }
+        } else if (type === '0' && (sourceFile.test(name) || (!executableFile.test(name) && approvedNodeShebang(tar.subarray(start, Math.min(end, start + 128)))))) {
+          if (size > cap.textFile || textBytes + size > cap.totalText) truncated = true;
+          else {
+            textBytes += size;
+            sourceFiles++;
+            try {
+              const text = textDecoder.decode(tar.subarray(start, end));
+              if (text.includes('\0')) throw new Error('Binary content in source');
+              inspectSource(findings, name, text); inspectedJavaScript.add(name);
+            }
+            catch { truncated = true; }
+          }
+        } else if (type === '0' && executableFile.test(name)) {
+          addFinding(findings, name, 'Native or WebAssembly executable is outside static text inspection', 'incomplete');
+        } else if (type === '0' && (scriptFile.test(name) || tar.subarray(start, Math.min(end, start + 2)).toString('ascii') === '#!')) {
+          addFinding(findings, name, 'Executable script is outside JavaScript text inspection', 'incomplete');
         }
-      } else if (type === '0' && sourceFile.test(name)) {
-        if (size > cap.textFile || textBytes + size > cap.totalText) truncated = true;
-        else {
-          textBytes += size;
-          sourceFiles++;
-          try { inspectSource(findings, name, textDecoder.decode(tar.subarray(start, end))); }
-          catch { truncated = true; }
-        }
-      } else if (type === '0' && executableFile.test(name)) {
-        addFinding(findings, name, 'Native or WebAssembly executable is outside static text inspection', 'incomplete');
-      } else if (type === '0' && (scriptFile.test(name) || tar.subarray(start, Math.min(end, start + 2)).toString('ascii') === '#!')) {
-        addFinding(findings, name, 'Executable script is outside JavaScript text inspection', 'incomplete');
       }
     }
     offset = start + Math.ceil(size / 512) * 512;
@@ -210,10 +243,11 @@ export function inspectNpmArtifact(input, limits = {}) {
   for (const path of entrypoints) {
     const matches = path.includes('*')
       ? [...seenFiles].filter(file => new RegExp(`^${path.split('*').map(piece => piece.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(file))
-      : seenFiles.has(path) ? [path] : [];
-    if (matches.length === 0) addFinding(findings, path, 'Declared package entrypoint is absent from the archive', 'incomplete');
+      : seenFiles.has(path) ? [path]
+        : legacyMain.has(path) && seenFiles.has(path + '.js') ? [path + '.js'] : [];
+    if (matches.length === 0) addFinding(findings, path, declarationOnly.has(path) ? 'Type-only declaration export is absent (metadata gap)' : 'Declared package entrypoint is absent from the archive', declarationOnly.has(path) ? 'info' : 'incomplete');
     for (const match of matches) {
-      if (!sourceFile.test(match) && !(path.includes('*') && passiveFile.test(match))) {
+      if (!inspectedJavaScript.has(match) && !(path.includes('*') && passiveFile.test(match))) {
         addFinding(findings, match, 'Declared package entrypoint is outside JavaScript text inspection', 'incomplete');
       }
     }

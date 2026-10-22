@@ -1,3 +1,11 @@
+# Unreleased, bounded large source inspection (2026-10-22)
+
+Inspect complete source files up to 8 MiB while retaining the 1 MiB manifest limit, 12 MiB aggregate text bound, 128 MiB expansion bound and unchanged findings and install decisions. Overflow remains incomplete. No package or file-extension exemption is added. Extensionless approved Node shebangs receive the same full source checks; unapproved interpreters and binary content remain incomplete. Missing types-only declaration exports retain informational metadata findings, while any runtime reference stays strict. Legacy CommonJS main paths can resolve an existing inspected .js sibling; exports remain exact. Registry identity can select one consistent package-basename archive root, covering official @types layouts; mixed and traversal roots remain rejected. Fix Unicode comment masking to preserve UTF-16 offsets so following executable indicators cannot disappear.
+
+# Unreleased, npm archive compatibility (2026-10-22)
+
+Accept ordinary zero-length `package` root directory records in verified npm tarballs. Payload-bearing roots, links and outside-root paths still fail closed. This fixes inspection of official archives such as @js-sdsl/ordered-map without changing install approvals, integrity checks or required VirusTotal evidence.
+
 # Runtime advisories review fixes: 5.2.1
 
 - fnm under `~/Library/Application Support/fnm` (and nvm, volta, asdf, mise, pnpm, n trees) is classified as a version manager before vendor rules, so its vulnerable versions are HIGH instead of vendor-managed.
