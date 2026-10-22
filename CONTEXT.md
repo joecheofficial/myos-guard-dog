@@ -10,7 +10,7 @@ OSV advisory checks work without an API key. VirusTotal is optional for analysis
 ## URLs / Access
 
 - GitHub: https://github.com/josephtandle/myos-guard-dog
-- After verifying the v5.1.0 GitHub tag is published, install it with `npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.1.0 && myos-guard-dog setup --quick`. Verify the installed version before use.
+- After verifying the v5.2.0 GitHub tag is published, install it with `npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.2.0 && myos-guard-dog setup --quick`. Verify the installed version before use.
 
 ## App Location
 
@@ -35,6 +35,7 @@ OSV advisory checks work without an API key. VirusTotal is optional for analysis
 ```bash
 myos-guard-dog analyze <package> [npm|pypi]
 myos-guard-dog batch <packages.json>
+myos-guard-dog runtime [--json] [--fix-plan]   # Node.js runtime advisories (5.2.0)
 myos-guard-dog test
 ```
 

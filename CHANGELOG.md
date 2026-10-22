@@ -1,3 +1,12 @@
+# Runtime advisories: 5.2.0
+
+- Add `myos-guard-dog runtime [--json] [--fix-plan] [--no-cache]`. It checks the Node.js runtimes themselves, not only packages: every `node` on PATH, Homebrew kegs and opt links, nvm, fnm, volta, asdf, n, the All Sorted runtime (`~/.local/allsorted-node`) and the executables of running node processes. Runtimes are deduplicated by real path plus device and inode. A binary that cannot run `-v` is reported as unknown and never stops the check.
+- Compare each version with `nodejs.org/dist/index.json`: a newer release on the same major with `security: true` makes the runtime vulnerable, and the newest such release is reported as `fixedIn`. End-of-life majors come from the Node release schedule. CVE ids are added from the Node security-wg core database when it lists them; the verdict works from the release index alone. Sources are cached privately for six hours and requests are paced.
+- Report running processes whose executable file was replaced after start (lsof inode differs from the current file) as "restart needed" with pid and redacted command. Runtimes bundled inside applications (for example `/Applications/*.app`, `~/Library/Application Support`, Codex runtimes) are vendor-managed: reported, never given a replacement command.
+- Binaries are never modified. `--fix-plan` prints exact commands only: `brew upgrade` when Homebrew has shipped the fix, otherwise the official nodejs.org tarball with SHASUMS256.txt, its GPG signature, a backup of the old binary and a version readback.
+- The nightly scan runs the runtime check first. A vulnerable or end-of-life runtime is a HIGH issue, marks the receipt dangerous and exits 1, and `doctor` repeats it from the last receipt. Set `runtimeAdvisories: false` in the user config to opt out.
+- With `VERCEL_TOKEN` set, also list Vercel projects (personal and teams) and flag Node versions on an end-of-life major. Report only.
+
 # Incremental advisory-first scans: 5.1.0
 
 - Run a four-worker advisory sweep across all discovered projects before VirusTotal or GitHub enrichment. Share exact-version OSV evidence only within the current nightly run; every new run checks for newly published advisories.

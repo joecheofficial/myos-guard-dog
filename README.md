@@ -1,4 +1,4 @@
-# MyOS Guard Dog 5.1.0
+# MyOS Guard Dog 5.2.0
 
 VirusTotal requests are paced within each process, including retries and refreshes.
 Separate processes or other software sharing the same API key can still exhaust its
@@ -36,7 +36,7 @@ Use the [installation prompt](GUARD_DOG_PROMPT.md). It guides your assistant thr
 For a terminal installation on macOS, Windows, or Linux, use Node 22 or Node 24 LTS. Other major versions are rejected so local installs, CI and support all exercise the same runtime:
 
 ```sh
-npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.1.0
+npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.2.0
 myos-guard-dog setup
 myos-guard-dog test
 myos-guard-dog scan "/your/project"
@@ -47,7 +47,7 @@ On Windows, substitute a quoted Windows folder such as `"C:\Users\You\Projects"`
 
 State lives in `~/.guardog` or `%USERPROFILE%\.guardog`, independently of the installation directory. `GUARDOG_HOME` selects another state folder. These legacy state names are intentional compatibility identifiers, not commands or product names. Do not rename them: upgrades reuse them to preserve settings, credentials and schedules.
 
-Use the v5.1.0 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
+Use the v5.2.0 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
 
 ## A keyless first check
 
@@ -106,6 +106,20 @@ The budget stops new checks; the current check can finish afterward. The nightly
 Read `scannedDependencyCount`, `deferredDependencyCount`, `budgetExhausted` and `resume` in the JSON. The cursor stores position only, not reusable clean verdicts. A large project may need several runs to visit every dependency, but those separate runs are never combined into a current complete verdict. Unchecked packages remain incomplete and exit 2. Known danger remains exit 1 even if other checks time out. Guarded installation requirements are unchanged.
 
 Nightly receipts add `scannedDependencyCount`, `coverage.deferredDependencies`, `budgetStops`, `timeouts` and `runnerFailure` when applicable. Progress is local under `~/.guardog/data/scan-progress/`; there is no automatic student telemetry. If a Node upgrade removes the running executable, the scan stops further launches and asks for Node 22/24 verification followed by `myos-guard-dog doctor --repair`. Review recurring failures with `myos-guard-dog doctor --json` and the latest nightly receipt. Do not share `.env` or API keys.
+
+## Node.js runtime advisories
+
+Package scans cannot see a vulnerable Node.js itself. The October 2026 Node security releases (a Brotli decoder out-of-bounds write reachable through `fetch()`, TLS hostname bypasses and a `dns.resolve` truncation) affected every installed Node on a machine whose packages all scanned clean. The runtime check closes that gap:
+
+```sh
+myos-guard-dog runtime
+myos-guard-dog runtime --json
+myos-guard-dog runtime --fix-plan
+```
+
+It finds `node` on PATH, in Homebrew, nvm, fnm, volta, asdf, n, the All Sorted runtime and in running processes, and compares each version with the official Node release index. A newer security release on the same major means **vulnerable**; a major past its end-of-life date means **eol**. Both exit 1 and make the nightly receipt dangerous. Processes still running a binary that has since been replaced are listed as **restart needed**. Node bundled inside applications is **vendor-managed**: update the application, not its files.
+
+Guard Dog never replaces binaries. `--fix-plan` prints the commands to run yourself: `brew upgrade` once Homebrew ships the fix, otherwise the official nodejs.org archive verified against `SHASUMS256.txt` and its signature, with a backup of the old binary. With `VERCEL_TOKEN` set, Vercel projects on an end-of-life Node major are reported too. Set `runtimeAdvisories: false` in `~/.guardog/config.json` to leave it out of nightly runs.
 
 ## VirusTotal and coverage
 
