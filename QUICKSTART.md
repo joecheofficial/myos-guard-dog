@@ -5,7 +5,7 @@ Use [the installation prompt](GUARD_DOG_PROMPT.md) to have your assistant comple
 With Node 22 or Node 24 LTS installed:
 
 ```sh
-npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.2.0
+npm install -g --ignore-scripts github:joecheofficial/myos-guard-dog#v5.2.1
 myos-guard-dog setup
 myos-guard-dog test
 myos-guard-dog workspace "/your/project"
@@ -15,7 +15,7 @@ myos-guard-dog nightly
 myos-guard-dog doctor --repair
 ```
 
-Use the v5.2.0 GitHub tag only after verifying it has been published. Check the installed version before scanning student projects.
+Use the v5.2.1 GitHub tag only after verifying it has been published. Check the installed version before scanning student projects.
 
 The `workspace` command checks local project files without network access. The `scan` command audits package dependencies using external security information.
 

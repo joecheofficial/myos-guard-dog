@@ -1,6 +1,6 @@
 {
   "name": "myos-guard-dog",
-  "version": "5.2.0",
+  "version": "5.2.1",
   "description": "Local workspace security scanning, exact package advisories, bounded npm artifact inspection and guarded installs",
   "main": "src/index.js",
   "type": "module",
@@ -47,7 +47,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/josephtandle/myos-guard-dog.git"
+    "url": "git+https://github.com/joecheofficial/myos-guard-dog.git"
   },
   "bugs": {
     "url": "https://github.com/josephtandle/myos-guard-dog/issues"

@@ -1,10 +1,10 @@
-# MyOS Guard Dog 5.2.0
+# MyOS Guard Dog 5.2.1
 
 VirusTotal requests are paced within each process, including retries and refreshes.
 Separate processes or other software sharing the same API key can still exhaust its
 quota. Rate limits leave coverage incomplete; they never turn into a clean result.
 
-MyOS Guard Dog checks software packages before installation and rechecks your projects against current security information. Its main command is `myos-guard-dog`; `myos-guard-dog-scan` is the bundled dependency-audit helper. It is not affiliated with DataDog GuardDog or other similarly named packages. The official source is [josephtandle/myos-guard-dog](https://github.com/josephtandle/myos-guard-dog).
+MyOS Guard Dog checks software packages before installation and rechecks your projects against current security information. Its main command is `myos-guard-dog`; `myos-guard-dog-scan` is the bundled dependency-audit helper. It is not affiliated with DataDog GuardDog or other similarly named packages. The official source is [joecheofficial/myos-guard-dog](https://github.com/joecheofficial/myos-guard-dog).
 
 ## Local workspace scanner
 
@@ -36,7 +36,7 @@ Use the [installation prompt](GUARD_DOG_PROMPT.md). It guides your assistant thr
 For a terminal installation on macOS, Windows, or Linux, use Node 22 or Node 24 LTS. Other major versions are rejected so local installs, CI and support all exercise the same runtime:
 
 ```sh
-npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.2.0
+npm install -g --ignore-scripts github:joecheofficial/myos-guard-dog#v5.2.1
 myos-guard-dog setup
 myos-guard-dog test
 myos-guard-dog scan "/your/project"
@@ -47,7 +47,7 @@ On Windows, substitute a quoted Windows folder such as `"C:\Users\You\Projects"`
 
 State lives in `~/.guardog` or `%USERPROFILE%\.guardog`, independently of the installation directory. `GUARDOG_HOME` selects another state folder. These legacy state names are intentional compatibility identifiers, not commands or product names. Do not rename them: upgrades reuse them to preserve settings, credentials and schedules.
 
-Use the v5.2.0 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
+Use the v5.2.1 GitHub tag only after verifying that it has been published and resolves to this release. Check the installed version before using it with student projects.
 
 ## A keyless first check
 
@@ -119,7 +119,7 @@ myos-guard-dog runtime --fix-plan
 
 It finds `node` on PATH, in Homebrew, nvm, fnm, volta, asdf, n, the All Sorted runtime and in running processes, and compares each version with the official Node release index. A newer security release on the same major means **vulnerable**; a major past its end-of-life date means **eol**. Both exit 1 and make the nightly receipt dangerous. Processes still running a binary that has since been replaced are listed as **restart needed**. Node bundled inside applications is **vendor-managed**: update the application, not its files.
 
-Guard Dog never replaces binaries. `--fix-plan` prints the commands to run yourself: `brew upgrade` once Homebrew ships the fix, otherwise the official nodejs.org archive verified against `SHASUMS256.txt` and its signature, with a backup of the old binary. With `VERCEL_TOKEN` set, Vercel projects on an end-of-life Node major are reported too. Set `runtimeAdvisories: false` in `~/.guardog/config.json` to leave it out of nightly runs.
+Guard Dog never replaces binaries. `--fix-plan` prints the commands to run yourself: `brew upgrade` once Homebrew ships the fix, the version manager's install, default and uninstall commands, or the official nodejs.org archive verified against `SHASUMS256.txt` and its `gpgv` signature in one fail-fast block. An unpatched Homebrew keg is left untouched: the verified build goes to `~/.local/node-vX.Y.Z` for you to put first on PATH until Homebrew catches up. Other replaced binaries are backed up to `~/.guardog/runtime-backups`. Versions installed by a version manager that are not running, on PATH or the default are reported as inactive (medium) with an uninstall command. If nodejs.org is unreachable, the last good release index from the past 30 days is used and noted. Windows skips the process scan. With `VERCEL_TOKEN` set, Vercel projects on an end-of-life Node major are reported too. Set `runtimeAdvisories: false` in `~/.guardog/config.json` to leave it out of nightly runs.
 
 ## VirusTotal and coverage
 
@@ -161,6 +161,6 @@ Guard Dog protects package workflows and selected coding workspaces. It is not a
 
 `npm test` runs regression and real packed-install tests. CI runs these on Windows, macOS and Linux with Node 24. Scheduler tests exercise platform command construction and readback without installing real tasks. `npm run test:live` separately exercises public services and may consume API quota. See the release verification record for actual platform results.
 
-Report security issues through [GitHub Security Advisories](https://github.com/josephtandle/myos-guard-dog/security/advisories/new). License: MIT.
+Report security issues through [GitHub Security Advisories](https://github.com/joecheofficial/myos-guard-dog/security/advisories/new). License: MIT.
 
 Set `GUARDOG_NIGHTLY_TIMEOUT_MS` (milliseconds, maximum 24 hours) or `nightlyTimeoutMs` in the user configuration to change the one-hour total budget. `GUARDOG_MANIFEST_TIMEOUT_MS` retains the 15-minute enrichment cap; projects share remaining time fairly. Half the available time is reserved for the advisory sweep, with unused time available to enrichment. Finite limits remain deliberate; budget stops save resumable progress. Choose explicit project roots instead of scanning an entire home directory.

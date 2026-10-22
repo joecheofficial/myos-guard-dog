@@ -1,4 +1,4 @@
-# Install MyOS Guard Dog 5.2.0
+# Install MyOS Guard Dog 5.2.1
 
 Copy the prompt below into your AI assistant. It needs access to your computer's terminal.
 
@@ -6,11 +6,11 @@ Copy the prompt below into your AI assistant. It needs access to your computer's
 
 Install or upgrade Guard Dog and prove the protection is working.
 
-Use this exact project: https://github.com/josephtandle/myos-guard-dog. MyOS Guard Dog is the product name and `myos-guard-dog` is its main command; `myos-guard-dog-scan` is its bundled dependency-audit helper. It is not DataDog GuardDog or any similarly named package. Do not substitute another project or invent a replacement implementation.
+Use this exact project: https://github.com/joecheofficial/myos-guard-dog. MyOS Guard Dog is the product name and `myos-guard-dog` is its main command; `myos-guard-dog-scan` is its bundled dependency-audit helper. It is not DataDog GuardDog or any similarly named package. Do not substitute another project or invent a replacement implementation.
 
 1. Detect my operating system, shell, Node version, existing installation, and project folder. Read the release instructions. Guard Dog supports Node 22 and Node 24 LTS and rejects other major versions so installs and support use the tested runtime. Preserve settings and credentials. Explain decisions in plain English.
 
-2. After confirming the official v5.2.0 release tag and its commit actually exist, install with `npm install -g --ignore-scripts github:josephtandle/myos-guard-dog#v5.2.0`. Run `myos-guard-dog doctor --repair` immediately after installation so any previously enabled owned nightly runner is updated to this release. Verify `myos-guard-dog --version`. Existing `~/.guardog` state is preserved. The `.guardog` folder and `GUARDOG_HOME` variable are legacy compatibility names; do not rename them. Do not use `guarddog`, `guardog`, or `guard-dog`: they are ambiguous external names.
+2. After confirming the official v5.2.1 release tag and its commit actually exist, install with `npm install -g --ignore-scripts github:joecheofficial/myos-guard-dog#v5.2.1`. Run `myos-guard-dog doctor --repair` immediately after installation so any previously enabled owned nightly runner is updated to this release. Verify `myos-guard-dog --version`. Existing `~/.guardog` state is preserved. The `.guardog` folder and `GUARDOG_HOME` variable are legacy compatibility names; do not rename them. Do not use `guarddog`, `guardog`, or `guard-dog`: they are ambiguous external names.
 
 3. Run `myos-guard-dog setup --quick`, then help me configure VirusTotal locally using `myos-guard-dog setup`. Never ask for an API key in chat, print it, or include it in a report. Without a key, vulnerability audits still run, but malware coverage is incomplete and guarded installation stays blocked. A stored key is not proof it works: run `myos-guard-dog test` and report the actual authentication and service results.
 

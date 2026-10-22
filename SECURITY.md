@@ -8,7 +8,7 @@ issue with exploit details.
 Send the affected package name, version, reproduction steps, and any relevant
 logs or scan output to the repository owner through GitHub Security Advisories:
 
-https://github.com/josephtandle/myos-guard-dog/security/advisories/new
+https://github.com/joecheofficial/myos-guard-dog/security/advisories/new
 
 If GitHub Security Advisories are unavailable, open a minimal public issue that
 requests a private security contact without including exploit details.
