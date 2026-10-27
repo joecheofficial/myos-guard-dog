@@ -36,6 +36,12 @@ test('schedule installation uses injected scheduler, persists a selected root an
 test('an empty nightly scan is incomplete and leaves an honest receipt', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'guardog-nightly-'));
   const home = path.join(root, 'state');
+  // This test is about an empty workspace. The Node runtime advisory check is
+  // switched off so the verdict never depends on the advisories open against
+  // the Node running the test (a Mac on an older Node got "dangerous", exit 1).
+  // The runtime check has its own test below with an injected result.
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ runtimeAdvisories: false }));
   const result = spawnSync(process.execPath, [path.resolve(__dirname, '../bin/nightly-scan.js')], {
     encoding: 'utf8', env: { ...process.env, GUARDOG_HOME: home, GUARDOG_WORKSPACE: root },
   });
@@ -43,6 +49,26 @@ test('an empty nightly scan is incomplete and leaves an honest receipt', () => {
   const receipt = JSON.parse(fs.readFileSync(path.join(home, 'data', 'last-nightly.json')));
   assert.equal(receipt.status, 'incomplete');
   assert.equal(receipt.dependencyCount, 0);
+});
+
+test('runtime advisories decide the nightly verdict only from the injected check, not the host Node', async () => {
+  const { runNightly } = await import('../bin/nightly-scan.js');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'guardog-runtime-'));
+  const previous = process.env.GUARDOG_HOME;
+  process.env.GUARDOG_HOME = path.join(root, 'state');
+  try {
+    const config = { scanRoots: [root] };
+    const clean = runNightly({ config, runtimeCheck: () => ({ status: 'complete', findings: [], issues: [] }) });
+    assert.equal(clean.status, 'incomplete', 'an empty workspace is still incomplete');
+    assert.equal(clean.exitCode, 2);
+    assert.equal(clean.runtimeHighCount, 0);
+    const vulnerable = runNightly({ config, runtimeCheck: () => ({ status: 'complete', issues: [], findings: [{ severity: 'high', kind: 'runtime_vulnerable', path: '/opt/node', version: 'v22.0.0', fixedIn: 'v22.99.0', action: 'Update Node.' }] }) });
+    assert.equal(vulnerable.status, 'dangerous');
+    assert.equal(vulnerable.exitCode, 1);
+    const off = runNightly({ config: { ...config, runtimeAdvisories: false }, runtimeCheck: () => { throw new Error('must not run'); } });
+    assert.equal(off.runtime, undefined);
+    assert.equal(off.exitCode, 2);
+  } finally { if (previous === undefined) delete process.env.GUARDOG_HOME; else process.env.GUARDOG_HOME = previous; }
 });
 
 test('Windows task XML keeps paths with spaces and ampersands outside shell parsing', async () => {
