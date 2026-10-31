@@ -10,6 +10,23 @@ const EXCLUDED = ['.git','node_modules','.venv','venv','vendor','.next','dist','
 export function within(root,file) { const r=relative(root,file); return r==='' || (!r.startsWith('..'+(process.platform==='win32'?'\\':'/')) && r!=='..' && !isAbsolute(r)); }
 export function fingerprint(finding) { return createHash('sha256').update([RULESET_VERSION,finding.ruleId,finding.path,finding.evidenceHash||finding.ruleId].join('\0')).digest('hex'); }
 
+// Owner-listed paths whose large or special files are expected to be skipped
+// (media, generated archives): counted and listed in coverage.expectedSkips,
+// never mark the scan incomplete. Symlink and depth skips are never waived, and
+// a pattern must name something literal (no bare "*" or "**").
+const EXPECTABLE=new Set(['file_size_limit','special_file_skipped']);
+export function expectedSkipMatcher(patterns=[]) {
+  if(!Array.isArray(patterns)) throw new Error('expectedSkips must be a list of path patterns');
+  const res=patterns.map(p=>{
+    const text=String(p||'').trim().replace(/\\/g,'/').replace(/^\.\//,'').replace(/\/+$/,'');
+    if(!text || text.startsWith('/') || /^[A-Za-z]:/.test(text) || text.split('/').includes('..')) throw new Error('Invalid expectedSkips pattern: use a relative path inside the workspace');
+    if(text.replace(/[*/.]/g,'').length<2) throw new Error('Invalid expectedSkips pattern: it must name a folder, file or extension, not only wildcards');
+    const body=text.split('**').map(part=>part.split('*').map(x=>x.replace(/[.+?^${}()|[\]\\]/g,'\\$&')).join('[^/]*')).join('.*');
+    return new RegExp('^'+body.replace(/^\.\*\//,'(?:.*/)?')+'(?:/.*)?$');
+  });
+  return name=>res.some(re=>re.test(name));
+}
+
 export function scanWorkspace(input, options = {}) {
   const limits={...DEFAULTS};
   for(const key of Object.keys(limits)) {
@@ -21,7 +38,9 @@ export function scanWorkspace(input, options = {}) {
   const scope={excludedDirectories:EXCLUDED.filter(x=>!options.includeDependencies||!['node_modules','vendor'].includes(x)),includesHiddenConfiguration:true,symlinks:'never followed',binaryAnalysis:'native test signature only; use ClamAV for malware signatures',network:false,projectExecution:false};
   const coverage={complete:true,filesScanned:0,filesAnalyzed:0,filesReused:0,textFiles:0,binaryFiles:0,bytesRead:0,entriesVisited:0,excludedDirectories:0,skippedFiles:0,limits};
   const report={schemaVersion:1,rulesetVersion:RULESET_VERSION,startedAt:new Date(started).toISOString(),status:'incomplete',exitCode:2,scope,coverage,engines:[{id:'native',status:'complete'}],findings,issues};
-  const issue=(code,path)=>{coverage.complete=false;if(issues.length<100)issues.push({code,...(path?{path}: {})});};
+  const expected=expectedSkipMatcher(options.expectedSkips||[]);
+  if(options.expectedSkips?.length) {coverage.expectedSkips=0;coverage.expectedSkipped=[];scope.expectedSkips=options.expectedSkips.map(String);}
+  const issue=(code,path)=>{if(path && EXPECTABLE.has(code) && expected(path)){coverage.expectedSkips++;if(coverage.expectedSkipped.length<100)coverage.expectedSkipped.push({code,path});return;}coverage.complete=false;if(issues.length<100)issues.push({code,...(path?{path}: {})});};
   let root;
   try {
     root=resolve(input);

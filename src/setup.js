@@ -92,7 +92,9 @@ export function runQuickSetup() {
   console.log('\nMyOS Guard Dog quick setup complete.');
   console.log('OSV needs no API key. Run myos-guard-dog test to verify connectivity.');
   console.log('No background job or global git hook was installed or changed.');
-  console.log('Add a VirusTotal key with myos-guard-dog setup for malware coverage and guarded installs.');
+  console.log(config.virustotalConfigured
+    ? 'VirusTotal key: configured.'
+    : 'Add a VirusTotal key with myos-guard-dog setup for malware coverage and guarded installs.');
   console.log('Use myos-guard-dog install for supported npm installs with lifecycle scripts disabled.');
   console.log('Try it: `myos-guard-dog analyze lodash npm`');
   if (!resilience.lastOperational) console.log('Setup is installed but protection is incomplete. Run myos-guard-dog doctor --json for the next action.');

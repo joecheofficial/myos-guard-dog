@@ -50,6 +50,7 @@ export function renderText(report) {
  const lines=[`Guard Dog workspace: ${report.status}; coverage ${report.coverage.complete?'complete within stated scope':'INCOMPLETE'}`,`${report.coverage.filesScanned} files; ${report.summary.total} findings (${report.summary.new} new).`];
  for(const f of report.findings)lines.push(`${f.severity.toUpperCase()} ${f.ruleId} ${terminal(f.path)}:${f.line} [${f.baselineState}] ${f.message}`);
  for(const i of report.issues)lines.push(`INCOMPLETE ${i.code}${i.path?' '+terminal(i.path):''}`);
+ if(report.coverage.expectedSkips){lines.push(`Expected skips (owner-listed: ${(report.scope?.expectedSkips||[]).map(terminal).join(', ')}): ${report.coverage.expectedSkips}`);for(const x of report.coverage.expectedSkipped||[])lines.push(`EXPECTED-SKIP ${x.code} ${terminal(x.path)}`);}
  for(const e of report.engines)lines.push(`Engine ${e.id}: ${e.status}${e.issues?.length?' ('+e.issues.map(x=>terminal(typeof x==='string'?x:x.code)).join(', ')+')':''}`);
  lines.push('Native rules are text heuristics, not full malware, taint or runtime protection. Review scope and exclusions.');
  return lines.join('\n');
