@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import { guardogConfigPath } from './paths.js';
 import { scanWorkspace, expectedSkipMatcher } from './workspace-scan.js';
 import { scanWithClamAV } from './workspace-engines.js';
@@ -54,7 +54,9 @@ function expectedSkips(file,root) {
   let config={};
   try {config=existsSync(guardogConfigPath())?read(guardogConfigPath()):{};} catch {config={};}
   const scoped=config.workspaceExpectedSkips;
-  list=scoped && typeof scoped==='object' && !Array.isArray(scoped) && Array.isArray(scoped[root])?scoped[root]:[];
+  let real=root;try{real=realpathSync(root);}catch{}
+  const key=[root,real].find(k=>scoped && typeof scoped==='object' && !Array.isArray(scoped) && Array.isArray(scoped[k]));
+  list=key?scoped[key]:[];
  }
  try {expectedSkipMatcher(list);}
  catch(error) {throw Error(`${error.message} (from ${file?'--expected-skips':'workspaceExpectedSkips in '+guardogConfigPath()})`);}

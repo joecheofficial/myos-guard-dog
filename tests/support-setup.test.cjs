@@ -86,7 +86,7 @@ test('config expected skips apply only to their own root and are printed in the 
     fs.writeFileSync(path.join(root, 'a.txt'), 'ok\n');
   }
   const real = fs.realpathSync(ws);
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ workspaceExpectedSkips: { [path.resolve(ws)]: ['media'], [real]: ['media'] } }));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ workspaceExpectedSkips: { [real]: ['media'] } }));
   const env = { GUARDOG_HOME: dir, HOME: dir };
   const listed = cli(['workspace', ws, '--max-file-bytes', '1024', '--no-cache'], env);
   assert.equal(listed.status, 0, listed.stdout + listed.stderr);
