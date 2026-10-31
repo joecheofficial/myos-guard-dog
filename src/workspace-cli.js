@@ -1,4 +1,6 @@
 import { resolve } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
+import { guardogConfigPath } from './paths.js';
 import { scanWorkspace } from './workspace-scan.js';
 import { scanWithClamAV } from './workspace-engines.js';
 import { finalizeReport,readBaseline,baselineFor,writeNewJson,toSarif,renderText } from './workspace-report.js';
@@ -7,7 +9,7 @@ export function workspaceCommand(args) {
  const options={},extras={},flags=new Set();
  let root,format='text';
  const numeric={'--max-files':'maxFiles','--max-file-bytes':'maxFileBytes','--max-bytes':'maxTotalBytes','--max-depth':'maxDepth','--timeout-ms':'timeoutMs','--max-findings':'maxFindings'};
- const values=new Set([...Object.keys(numeric),'--baseline','--write-baseline','--output','--clamav','--fail-on']);
+ const values=new Set([...Object.keys(numeric),'--baseline','--write-baseline','--output','--clamav','--fail-on','--expected-skips']);
  for(let i=0;i<args.length;i++) {
   const arg=args[i];
   if(arg.startsWith('--')) {
@@ -24,6 +26,7 @@ export function workspaceCommand(args) {
  }
  root=resolve(root||process.cwd());
  const baseline=extras.baseline?readBaseline(resolve(extras.baseline)):undefined;
+ options.expectedSkips=expectedSkips(extras['expected-skips']);
  const native=scanWorkspace(root,options);
  const engines=extras.clamav?[scanWithClamAV({root,executable:extras.clamav})]:[];
  const report=finalizeReport(native,{engines,baseline,failOn:extras['fail-on']||'high'});
@@ -38,4 +41,13 @@ export function workspaceCommand(args) {
  const output=format==='sarif'?toSarif(report):report;
  console.log(format==='text'?renderText(report):JSON.stringify(output,null,2));
  return report.exitCode;
+}
+
+// Expected skips come from --expected-skips <file> ({"expectedSkips":[...]} or a
+// list), else from "workspaceExpectedSkips" in the Guard Dog config.json.
+function expectedSkips(file) {
+ const read=path=>JSON.parse(readFileSync(path,'utf8'));
+ if(file) {const value=read(resolve(file));return Array.isArray(value)?value:(value.expectedSkips||[]);}
+ try {const config=existsSync(guardogConfigPath())?read(guardogConfigPath()):{};return Array.isArray(config.workspaceExpectedSkips)?config.workspaceExpectedSkips:[];}
+ catch {return [];}
 }

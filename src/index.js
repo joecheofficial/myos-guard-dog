@@ -517,8 +517,16 @@ async function main(argv = process.argv.slice(2)) {
     const manifest = JSON.parse(readFileSync(join(packageRoot(), 'package.json'), 'utf-8'));
     console.log(manifest.version);
   } else if (command === 'setup') {
+    // Only bare "setup" starts the interactive wizard; anything else unknown
+    // prints usage instead of starting setup (support report e8bc2c56).
     if (args[1] === '--quick') runQuickSetup();
-    else await runSetup();
+    else if (args[1] === undefined) await runSetup();
+    else {
+      console.log('Usage: myos-guard-dog setup            Interactive first-time setup');
+      console.log('       myos-guard-dog setup --quick    Safe local setup, no prompts');
+      console.log('       myos-guard-dog doctor           Show current setup and health');
+      process.exitCode = ['--help', '-h', 'help'].includes(args[1]) ? 0 : 2;
+    }
   } else if (command === 'doctor') {
     const health = args.includes('--json') ? checkHealth({ repair: args.includes('--repair') }) : printDoctor({ repair: args.includes('--repair') });
     if (args.includes('--json')) console.log(JSON.stringify(health));
