@@ -517,8 +517,16 @@ async function main(argv = process.argv.slice(2)) {
     const manifest = JSON.parse(readFileSync(join(packageRoot(), 'package.json'), 'utf-8'));
     console.log(manifest.version);
   } else if (command === 'setup') {
+    // Only bare "setup" starts the interactive wizard; anything else unknown
+    // prints usage instead of starting setup (support report e8bc2c56).
     if (args[1] === '--quick') runQuickSetup();
-    else await runSetup();
+    else if (args[1] === undefined) await runSetup();
+    else {
+      console.log('Usage: myos-guard-dog setup            Interactive first-time setup');
+      console.log('       myos-guard-dog setup --quick    Safe local setup, no prompts');
+      console.log('       myos-guard-dog doctor           Show current setup and health');
+      process.exitCode = ['--help', '-h', 'help'].includes(args[1]) ? 0 : 2;
+    }
   } else if (command === 'doctor') {
     const health = args.includes('--json') ? checkHealth({ repair: args.includes('--repair') }) : printDoctor({ repair: args.includes('--repair') });
     if (args.includes('--json')) console.log(JSON.stringify(health));
@@ -533,9 +541,11 @@ async function main(argv = process.argv.slice(2)) {
     try {
       const { workspaceCommand } = await import('./workspace-cli.js');
       process.exitCode = workspaceCommand(args.slice(1));
-    } catch {
-      const error = { schemaVersion: 1, status: 'incomplete', exitCode: 2, issues: [{ code: 'workspace_command_failed' }] };
+    } catch (failure) {
+      const skips = /expectedSkips/.test(String(failure?.message || ''));
+      const error = { schemaVersion: 1, status: 'incomplete', exitCode: 2, issues: [{ code: skips ? 'invalid_expected_skips' : 'workspace_command_failed' }] };
       if (args.includes('--json')) console.log(JSON.stringify(error));
+      else if (skips) console.error(`Workspace scan incomplete: ${failure.message}. Fix or remove that pattern.`);
       else console.error('Workspace scan incomplete: invalid options, baseline, root, or output destination. Existing files are never overwritten.');
       process.exitCode = 2;
     }
