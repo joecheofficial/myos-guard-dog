@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
 import { guardogConfigPath } from './paths.js';
-import { scanWorkspace } from './workspace-scan.js';
+import { scanWorkspace, expectedSkipMatcher } from './workspace-scan.js';
 import { scanWithClamAV } from './workspace-engines.js';
 import { finalizeReport,readBaseline,baselineFor,writeNewJson,toSarif,renderText } from './workspace-report.js';
 
@@ -26,7 +26,7 @@ export function workspaceCommand(args) {
  }
  root=resolve(root||process.cwd());
  const baseline=extras.baseline?readBaseline(resolve(extras.baseline)):undefined;
- options.expectedSkips=expectedSkips(extras['expected-skips']);
+ options.expectedSkips=expectedSkips(extras['expected-skips'],root);
  const native=scanWorkspace(root,options);
  const engines=extras.clamav?[scanWithClamAV({root,executable:extras.clamav})]:[];
  const report=finalizeReport(native,{engines,baseline,failOn:extras['fail-on']||'high'});
@@ -44,10 +44,19 @@ export function workspaceCommand(args) {
 }
 
 // Expected skips come from --expected-skips <file> ({"expectedSkips":[...]} or a
-// list), else from "workspaceExpectedSkips" in the Guard Dog config.json.
-function expectedSkips(file) {
+// list), else from the Guard Dog config.json "workspaceExpectedSkips" entry for
+// this exact root ({"<absolute root>": [...]}), never from the scanned workspace.
+function expectedSkips(file,root) {
  const read=path=>JSON.parse(readFileSync(path,'utf8'));
- if(file) {const value=read(resolve(file));return Array.isArray(value)?value:(value.expectedSkips||[]);}
- try {const config=existsSync(guardogConfigPath())?read(guardogConfigPath()):{};return Array.isArray(config.workspaceExpectedSkips)?config.workspaceExpectedSkips:[];}
- catch {return [];}
+ let list=[];
+ if(file) {const value=read(resolve(file));list=Array.isArray(value)?value:(value.expectedSkips||[]);}
+ else {
+  let config={};
+  try {config=existsSync(guardogConfigPath())?read(guardogConfigPath()):{};} catch {config={};}
+  const scoped=config.workspaceExpectedSkips;
+  list=scoped && typeof scoped==='object' && !Array.isArray(scoped) && Array.isArray(scoped[root])?scoped[root]:[];
+ }
+ try {expectedSkipMatcher(list);}
+ catch(error) {throw Error(`${error.message} (from ${file?'--expected-skips':'workspaceExpectedSkips in '+guardogConfigPath()})`);}
+ return list;
 }

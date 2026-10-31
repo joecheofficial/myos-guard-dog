@@ -60,8 +60,41 @@ test('owner-listed expected skips keep the workspace scan complete; other skips 
   assert.equal(listed.coverage.expectedSkips, 1);
   fs.writeFileSync(path.join(root, 'big.bin'), Buffer.alloc(2048, 2));
   assert.equal(scanWorkspace(root, { ...limits, expectedSkips: ['media/**'] }).coverage.complete, false);
+  // Symlink and depth skips are never waived.
+  fs.symlinkSync('/etc/hosts', path.join(root, 'media', 'link'));
+  fs.rmSync(path.join(root, 'big.bin'));
+  const linked = scanWorkspace(root, { ...limits, expectedSkips: ['media'] });
+  assert.equal(linked.coverage.complete, false);
+  assert.ok(linked.issues.some((i) => i.code === 'symlink_skipped'));
+  assert.deepEqual(linked.coverage.expectedSkipped, [{ code: 'file_size_limit', path: 'media/clip.mov' }]);
+  for (const bad of ['*', '**', '**/*', '*/*.', 'C:/x']) assert.throws(() => expectedSkipMatcher([bad]), /Invalid expectedSkips/, bad);
+  assert.ok(expectedSkipMatcher(['**/media'])('media/x.mov'));
+  assert.ok(expectedSkipMatcher(['media\\big'])('media/big/a'));
   const match = expectedSkipMatcher(['*.mov', 'assets']);
   assert.ok(match('clip.mov') && match('assets/a/b.png') && !match('media/clip.mov') && !match('assetsx/a'));
   assert.throws(() => expectedSkipMatcher(['../x']));
   assert.throws(() => expectedSkipMatcher(['/abs']));
+});
+
+test('config expected skips apply only to their own root and are printed in the text report', (t) => {
+  const dir = home(t);
+  const ws = path.join(dir, 'ws');
+  const other = path.join(dir, 'other');
+  for (const root of [ws, other]) {
+    fs.mkdirSync(path.join(root, 'media'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'media', 'clip.mov'), Buffer.alloc(4096, 1));
+    fs.writeFileSync(path.join(root, 'a.txt'), 'ok\n');
+  }
+  const real = fs.realpathSync(ws);
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ workspaceExpectedSkips: { [path.resolve(ws)]: ['media'], [real]: ['media'] } }));
+  const env = { GUARDOG_HOME: dir, HOME: dir };
+  const listed = cli(['workspace', ws, '--max-file-bytes', '1024', '--no-cache'], env);
+  assert.equal(listed.status, 0, listed.stdout + listed.stderr);
+  assert.match(listed.stdout, /EXPECTED-SKIP file_size_limit media\/clip\.mov/);
+  const unlisted = cli(['workspace', other, '--max-file-bytes', '1024', '--no-cache'], env);
+  assert.equal(unlisted.status, 2);
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ workspaceExpectedSkips: { [path.resolve(ws)]: ['*'] } }));
+  const bad = cli(['workspace', ws, '--no-cache'], env);
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /expectedSkips/);
 });
