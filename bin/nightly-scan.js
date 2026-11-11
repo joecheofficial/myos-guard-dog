@@ -63,7 +63,9 @@ function performNightly(options) {
   const config = options.config || loadUserConfig();
   const totalBudget=Number(options.timeoutMs ?? process.env.GUARDOG_NIGHTLY_TIMEOUT_MS ?? config.nightlyTimeoutMs ?? 3600000);
   if(!Number.isSafeInteger(totalBudget)||totalBudget<0||totalBudget>24*3600000)throw Error('Nightly budget must be 0 to 86400000 milliseconds.');
-  const deadline = Date.now() + totalBudget;
+  if(options.now!==undefined&&typeof options.now!=='function')throw Error('Nightly clock must be a function.');
+  const now = options.now === undefined ? Date.now : options.now;
+  const deadline = now() + totalBudget;
   // Explicit scan roots in config win. GUARDOG_WORKSPACE is the fallback for an
   // install that never chose roots (the legacy cron wrapper passes $HOME).
   const roots = options.roots || (config.scanRoots?.length ? config.scanRoots : process.env.GUARDOG_WORKSPACE ? [resolve(process.env.GUARDOG_WORKSPACE)] : []);
@@ -81,7 +83,7 @@ function performNightly(options) {
   // opt in with options.runtimeCheck; the CLI enables it unless config.runtimeAdvisories is false.
   if (typeof options.runtimeCheck === 'function' && config.runtimeAdvisories !== false) {
     let runtime;
-    try { runtime = options.runtimeCheck({ timeoutMs: Math.max(1, Math.min(120000, deadline - Date.now())) }); }
+    try { runtime = options.runtimeCheck({ timeoutMs: Math.max(1, Math.min(120000, deadline - now())) }); }
     catch (error) { runtime = { status: 'incomplete', findings: [], highCount: 0, issues: ['Runtime advisory check failed: ' + error.message] }; }
     receipt.runtime = runtime;
     receipt.runtimeHighCount = (runtime.findings || []).filter(f => f.severity === 'high').length;
@@ -103,7 +105,7 @@ function performNightly(options) {
     }
     receipt.workspace.roots = uniqueRoots;
     for (const root of uniqueRoots) {
-      const remaining = deadline - Date.now();
+      const remaining = deadline - now();
       if (remaining <= 0 || receipt.workspace.rootsScanned >= 50) { receipt.workspace.coverage.complete = false; receipt.workspace.issues.push({ code: 'nightly_workspace_budget' }); break; }
       const report = scanWorkspace(root, { timeoutMs: Math.min(60000, remaining), maxFindings: 200 });
       receipt.workspace.rootsScanned++;
@@ -131,7 +133,7 @@ function performNightly(options) {
   const maxDepth = Number(process.env.GUARDOG_MAX_DEPTH || 4);
   const homeIdentity = realPathOrNull(options.homeDirectory || homedir());
   function discover(dir, depth = 0) {
-    if (Date.now() >= deadline) { receipt.issues.push('Nightly discovery time budget exhausted.'); return; }
+    if (now() >= deadline) { receipt.issues.push('Nightly discovery time budget exhausted.'); return; }
     // Reaching the depth limit is a boundary of the scan, not a failure: count it
     // so the receipt says how much was left unexplored, and stay "complete".
     if (depth > maxDepth) { noteBoundary('depthLimited', dir); return; }
@@ -184,9 +186,9 @@ function performNightly(options) {
   receipt.findings=[]; receipt.inventoryComplete=true; receipt.advisoryCheckedCount=0; receipt.enrichmentCheckedCount=0;
   if(options.advisoryFirst!==false) {
     // Complete the fast advisory sweep across ALL projects before any VT enrichment.
-    const advisoryDeadline=Date.now()+Math.max(1,(deadline-Date.now())/2);
+    const advisoryDeadline=now()+Math.max(1,(deadline-now())/2);
     for(const [index,manifest] of ordered.entries()) {
-      const remaining=advisoryDeadline-Date.now();
+      const remaining=advisoryDeadline-now();
       if(remaining<=0){receipt.issues.push('Advisory sweep time budget exhausted.');break;}
       const timeout=Math.max(1,Math.floor(remaining/(ordered.length-index)));
       const result=run(process.execPath,[join(packageRoot(),'bin','scan-deps.js'),manifest,'--json','--advisories-only','--audit-run-id',auditRunId,'--budget-ms',String(Math.max(1,timeout-Math.min(15000,timeout/2)))],{encoding:'utf8',timeout,killSignal:'SIGKILL',maxBuffer:8*1024*1024,windowsHide:true});
@@ -202,7 +204,7 @@ function performNightly(options) {
   let lastDone = null;
   for (const [index, manifest] of ordered.entries()) {
     if(receipt.runnerFailure)break;
-    const remaining = deadline - Date.now();
+    const remaining = deadline - now();
     if (remaining <= 0) {
       if (partialOk) { deferred.push(...ordered.slice(index)); } else receipt.issues.push('Nightly scan time budget exhausted.');
       break;

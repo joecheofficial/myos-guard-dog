@@ -14,15 +14,48 @@ test('all 2124 dependencies across five projects get advisories before quota-lim
   fs.writeFileSync(preload,`import fs from 'node:fs';
    import {CVEChecker} from ${JSON.stringify(pathToFileURL(path.resolve(__dirname,'../src/cve-checker.js')).href)};
    import {GuardDog} from ${JSON.stringify(pathToFileURL(path.resolve(__dirname,'../src/index.js')).href)};
+   Date.now=()=>1_700_000_000_000;
    CVEChecker.prototype.checkCVEs=async function(n,e,v){fs.appendFileSync(${JSON.stringify(log)},n+'\\n');const danger=n==='pkg-2123';return {status:'complete',version:v,found:danger,vulnerabilities:danger?[{id:'MAL-test-critical',severity:'critical'}]:[],severity:{critical:danger?1:0,high:0,medium:0,low:0}};};
    GuardDog.prototype.analyze=async function(n,e,t,v){if(fs.readFileSync(${JSON.stringify(log)},'utf8').trim().split('\\n').length!==2124)throw Error('Enrichment starved advisory checks');return {packageName:n,version:v,ecosystem:e,decision:{action:'SILENT',coverage:'incomplete'},cveResults:{status:'complete'},scanResults:{status:'rate_limited'}};};`);
-  const {runNightly}=await import('../bin/nightly-scan.js');const calls=[];
-  const result=runNightly({roots:[root],timeoutMs:120000,healthOptions:{platform:'linux',run:()=>({status:0,stdout:''})},run:(command,args,options)=>{calls.push(args.includes('--advisories-only')?'advisory':'enrichment');return spawnSync(command,['--import',pathToFileURL(preload).href,...args],options);}});
+  const {runNightly}=await import('../bin/nightly-scan.js');const calls=[],budgets=[];
+  const result=runNightly({roots:[root],timeoutMs:120000,now:()=>1_700_000_000_000,healthOptions:{platform:'linux',run:()=>({status:0,stdout:''})},run:(command,args,options)=>{
+   calls.push(args.includes('--advisories-only')?'advisory':'enrichment');
+   budgets.push([options.timeout,Number(args[args.indexOf('--budget-ms')+1])]);
+   // A frozen child clock makes every positive budget inexhaustible. Stubbed
+   // advisory/analyze calls bypass request pacing; progress is inventory-bounded.
+   const childArgs=[...args];childArgs[childArgs.indexOf('--budget-ms')+1]='1';
+   const {encoding,maxBuffer,windowsHide}=options;
+   return spawnSync(command,['--import',pathToFileURL(preload).href,...childArgs],{encoding,maxBuffer,windowsHide});
+  }});
   assert.deepEqual(calls,['advisory','advisory','advisory','advisory','advisory','enrichment']);
+  // Frozen time leaves 60000ms for advisories, divided by 5,4,3,2,1;
+  // child headroom is min(15000,timeout/2). Enrichment gets 120000/5, halved.
+  assert.deepEqual(budgets,[[12000,6000],[15000,7500],[20000,10000],[30000,15000],[60000,45000],[24000,12000]]);
   assert.equal(result.advisoryCheckedCount,2124);assert.equal(result.dependencyCount,2124);
   assert.equal(result.phases.advisories,'complete');assert.equal(result.phases.enrichment,'incomplete');
   assert.equal(result.dangerousCount,1);assert.equal(result.exitCode,1);
   assert.ok(result.findings.some(f=>f.packageName==='pkg-2123'&&f.project.endsWith(path.join('project4','package.json'))&&f.advisoryIds.includes('MAL-test-critical')));
+ }finally{if(previous===undefined)delete process.env.GUARDOG_HOME;else process.env.GUARDOG_HOME=previous;fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('the injected clock stops the advisory sweep at the next manifest and rejects invalid clocks',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'gd-nightly-clock-'));const previous=process.env.GUARDOG_HOME;
+ try{
+  process.env.GUARDOG_HOME=path.join(root,'state');fs.mkdirSync(process.env.GUARDOG_HOME);
+  fs.writeFileSync(path.join(process.env.GUARDOG_HOME,'config.json'),JSON.stringify({nightlyUpdates:false}));
+  for(const project of ['a','b']){const dir=path.join(root,project);fs.mkdirSync(dir);fs.writeFileSync(path.join(dir,'package.json'),'{}');}
+  const {runNightly}=await import('../bin/nightly-scan.js');let time=1_700_000_000_000;const calls=[];
+  const options={roots:[root],timeoutMs:120000,now:()=>time,healthOptions:{platform:'linux',run:()=>({status:0,stdout:''})},run:(_,args)=>{
+   const advisory=args.includes('--advisories-only');calls.push([path.basename(path.dirname(args[1])),advisory?'advisory':'enrichment']);
+   // The first advisory ends exactly at its 60000ms deadline, while 60000ms
+   // remains for enrichment. The second manifest must miss the advisory sweep.
+   if(advisory)time+=60000;
+   return {status:0,stdout:JSON.stringify({status:'complete',coverage:'complete',inventoryComplete:true,dependencyCount:1,advisoryCheckedCount:1,enrichmentCheckedCount:advisory?0:1,dangerousCount:0,suspiciousCount:0,findings:[],issues:[]})};
+  }};
+  const receipt=runNightly(options);
+  assert.deepEqual(calls,[['a','advisory'],['a','enrichment'],['b','enrichment']]);
+  assert.equal(receipt.issues.filter(issue=>issue==='Advisory sweep time budget exhausted.').length,1);
+  for(const now of [null,0,'clock',{}])assert.throws(()=>runNightly({...options,now}),/Nightly clock must be a function\./);
  }finally{if(previous===undefined)delete process.env.GUARDOG_HOME;else process.env.GUARDOG_HOME=previous;fs.rmSync(root,{recursive:true,force:true});}
 });
 
