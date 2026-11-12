@@ -23,7 +23,14 @@ write_overseer_status() {
   local receipt="${GUARDOG_HOME:-$HOME/.guardog}/data/last-nightly.json"
   local detail=""
   local semantic_danger_verdict="0"
-  if [ -f "$receipt" ] && [ "$(stat -f %m "$receipt" 2>/dev/null || echo 0)" -ge "$RUN_STARTED_EPOCH" ]; then
+  local receipt_mtime=""
+  if [ -f "$receipt" ]; then
+    # GNU stat uses -c; macOS stat uses -f.
+    receipt_mtime=$(stat -c %Y "$receipt" 2>/dev/null) ||
+      receipt_mtime=$(stat -f %m "$receipt" 2>/dev/null) ||
+      receipt_mtime=""
+  fi
+  if [[ "$receipt_mtime" =~ ^[0-9]+$ ]] && [ "$receipt_mtime" -ge "$RUN_STARTED_EPOCH" ]; then
     detail=$(/usr/bin/python3 -c 'import json,sys
 r=json.load(open(sys.argv[1]))
 print("receipt status=%s dangerous=%s suspicious=%s deps=%s projects=%s" % (r.get("status"), r.get("dangerousCount"), r.get("suspiciousCount"), r.get("dependencyCount"), r.get("projectsScanned")))' "$receipt" 2>/dev/null || true)

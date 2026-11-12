@@ -54,9 +54,10 @@ function fakeSystem(files, { processes = [], lsof = '', psArgs = '' } = {}) {
     if (file === 'brew') return { status: 0, stdout: JSON.stringify({ formulae: [{ name: 'node@22', versions: { stable: '22.23.3' } }, { name: 'node', versions: { stable: '26.12.0' } }] }) };
     return { status: 1, stdout: '' };
   };
-  return { fs: fsFake, exec, calls };
+  // Every path/process fixture below models Unix unless the test overrides it.
+  return { fs: fsFake, exec, calls, platform: 'darwin', arch: 'arm64', execPath: null };
 }
-const env = dirs => ({ PATH: dirs.join(path.delimiter) });
+const env = dirs => ({ PATH: dirs.join(':') });
 
 test('2026-10-21 data: 26.12.0/24.22.0/22.23.3 vulnerable, 26.12.1/24.22.1/22.23.4 ok', async () => {
   const m = await load(), d = await data();
@@ -444,4 +445,19 @@ test('P3-14: an unpatched Homebrew keg is never overwritten; the build goes to i
   assert.match(plan, /export PATH="\$HOME\/.local\/node-v22.23.4\/bin:\$PATH"/);
   assert.doesNotMatch(plan, /install -m 0755 .*Cellar/);
   assert.doesNotMatch(plan, /cp -p .*Cellar/);
+});
+
+
+test('CLI fix-plan honors the injected target platform instead of the host', async () => {
+  const m = await load();
+  const sys = fakeSystem({ '/a/node': { ino: 1, version: 'v22.23.3' } });
+  const logs = [];
+  const exit = await m.runtimeCommand(['--fix-plan'], { ...sys, platform: 'linux', arch: 'x64', env: env(['/a']), home: '/nohome', now: NOW, advisoryData: await data(), processes: [], vercel: false, log: line => logs.push(line) });
+  assert.equal(exit, 1);
+  assert.match(logs.join('\n'), /node-v22.23.4-linux-x64.tar.gz/);
+  assert.doesNotMatch(logs.join('\n'), /darwin|windows/);
+  const jsonLogs = [];
+  await m.runtimeCommand(['--json', '--fix-plan'], { ...sys, platform: 'linux', arch: 'x64', env: env(['/a']), home: '/nohome', now: NOW, advisoryData: await data(), processes: [], vercel: false, log: line => jsonLogs.push(line) });
+  assert.equal(JSON.parse(jsonLogs[0]).fixPlan, logs.join('\n'));
+  assert.ok(sys.calls.every(call => call[1] === '-v'), 'plan never executes an installer');
 });
