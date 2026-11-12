@@ -5,6 +5,7 @@ const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 
 const wrapper = resolve(__dirname, '../bin/cron-nightly-scan.sh');
+const legacyCron = { skip: process.platform === 'win32' ? 'Legacy Unix cron wrapper requires /bin/bash' : false };
 
 function runWrapper(t, scannerExitCode, receipt = {}) {
   const temp = require('node:fs').mkdtempSync(join(require('node:os').tmpdir(), 'guard-dog-cron-'));
@@ -42,10 +43,11 @@ exit "$FAKE_SCANNER_EXIT"
     },
   });
 
+  assert.ifError(result.error);
   return { result, status: JSON.parse(readFileSync(statusPath, 'utf8')) };
 }
 
-test('danger verdict is healthy for scheduling while preserving scanner exit 1', (t) => {
+test('danger verdict is healthy for scheduling while preserving scanner exit 1', legacyCron, (t) => {
   const { result, status } = runWrapper(t, 1);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(status.status, 'ok');
@@ -53,14 +55,14 @@ test('danger verdict is healthy for scheduling while preserving scanner exit 1',
   assert.match(status.reason, /dangerous dependency findings/);
 });
 
-test('operational scanner failure remains failed for launchd and Overseer', (t) => {
+test('operational scanner failure remains failed for launchd and Overseer', legacyCron, (t) => {
   const { result, status } = runWrapper(t, 2);
   assert.equal(result.status, 2, result.stderr || result.stdout);
   assert.equal(status.status, 'error');
   assert.equal(status.exit_code, 2);
 });
 
-test('exit 1 without a fresh matching danger receipt remains failed', (t) => {
+test('exit 1 without a fresh matching danger receipt remains failed', legacyCron, (t) => {
   const { result, status } = runWrapper(t, 1, { status: 'incomplete', exitCode: 2, dangerousCount: 0 });
   assert.equal(result.status, 1, result.stderr || result.stdout);
   assert.equal(status.status, 'error');
