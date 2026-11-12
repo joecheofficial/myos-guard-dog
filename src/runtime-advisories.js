@@ -10,7 +10,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join, posix } from 'node:path';
 import { guardogDataDir, guardogHome } from './paths.js';
 import { EvidenceCache } from './scan-cache.js';
 import { createRequestPacer } from './request-pacer.js';
@@ -186,7 +186,7 @@ export function assessVersion(version, { index, schedule = null, vulnDb = null, 
 export function resolveTool(name, { env = process.env, exists = existsSync } = {}) {
   if (name.includes('/')) return name;
   for (const dir of [...SYSTEM_TOOL_DIRS, ...String(env.PATH || '').split(':').filter(Boolean)]) {
-    const candidate = join(dir, name);
+    const candidate = posix.join(dir, name); // Unix tool dirs, also when tested on Windows.
     if (exists(candidate)) return candidate;
   }
   return name;
@@ -208,6 +208,7 @@ const defaultFs = {
   readFile: p => readFileSync(p, 'utf8')
 };
 function glob(fs, parent, childPattern, suffix) {
+  const { join } = posix; // Only Unix version-manager layouts use this helper.
   try { return fs.readdir(parent).filter(name => childPattern.test(name)).map(name => join(parent, name, suffix)); } catch { return []; }
 }
 
@@ -215,6 +216,8 @@ function glob(fs, parent, childPattern, suffix) {
 export function candidatePaths({ fs = defaultFs, env = process.env, home = homedir(), platform = process.platform, execPath = process.execPath } = {}) {
   const out = [];
   const add = (path, source) => out.push({ path, source });
+  // Select the target's path syntax, not the test runner's host syntax.
+  const { join } = posix;
   const win = platform === 'win32';
   const exe = win ? 'node.exe' : 'node';
   const sep = win ? ';' : ':';
@@ -258,7 +261,7 @@ export function parseLsof(text) {
   }
   const result = new Map();
   for (const [p, entries] of byPid) {
-    const exe = entries.find(e => basename(e.path) === 'node') || entries[0];
+    const exe = entries.find(e => posix.basename(e.path) === 'node') || entries[0];
     if (exe) result.set(p, exe);
   }
   return result;
@@ -279,7 +282,7 @@ export function redactCommand(command) {
 export function runningNodeProcesses({ exec = defaultExec } = {}) {
   const ps = exec('ps', ['-axo', 'pid=,comm=']);
   if (ps.status !== 0 || typeof ps.stdout !== 'string') return { processes: [], incomplete: true, issue: 'Could not list processes (ps): restart-needed detection did not run.' };
-  const pids = ps.stdout.split('\n').map(line => /^\s*(\d+)\s+(.+)$/.exec(line)).filter(m => m && basename(m[2].trim()) === 'node').map(m => Number(m[1])).filter(pid => pid !== process.pid);
+  const pids = ps.stdout.split('\n').map(line => /^\s*(\d+)\s+(.+)$/.exec(line)).filter(m => m && posix.basename(m[2].trim()) === 'node').map(m => Number(m[1])).filter(pid => pid !== process.pid);
   if (!pids.length) return { processes: [] };
   const lsof = exec('lsof', ['-nP', '-a', '-d', 'txt', '-p', pids.join(','), '-Fpfin'], { timeout: 15000 });
   const exes = parseLsof(lsof.stdout);
@@ -296,7 +299,7 @@ function classifySource(realPath, sources, home) {
   if (manager) return manager.name;
   if (isVendor(realPath)) return 'vendor';
   if (homebrewFormula(realPath)) return 'homebrew';
-  if (realPath.startsWith(join(home, '.local', 'allsorted-node') + '/')) return 'allsorted';
+  if (realPath.startsWith(posix.join(home, '.local', 'allsorted-node') + '/')) return 'allsorted';
   for (const s of ['installer', 'home-bin', 'path', 'self']) if (sources.includes(s)) return s;
   return 'other';
 }
@@ -317,6 +320,7 @@ export function homebrewStableVersions(formulas, { exec = defaultExec } = {}) {
  * resolved (callers then treat all its versions as active: fail safe).
  */
 export function managerDefaults({ fs = defaultFs, home = homedir(), installed = {} } = {}) {
+  const { join } = posix; // These manager layouts and their matchers are Unix-specific.
   const read = p => { try { return String(fs.readFile(p)).trim(); } catch { return null; } };
   const pick = (manager, spec) => {
     const versions = (installed[manager] || []).filter(v => parseVersion(v));
@@ -539,7 +543,7 @@ function verifiedDownload(v, target) {
 export function buildFixPlan(report, { platform = process.platform, arch = process.arch } = {}) {
   const lines = ['# MyOS Guard Dog runtime fix plan. Review before running; nothing has been executed.'];
   const target = distTarget(platform, arch);
-  const backups = join(guardogHome(), 'runtime-backups');
+  const backups = posix.join(guardogHome(), 'runtime-backups');
   let steps = 0;
   for (const r of report.runtimes || []) {
     if (!['vulnerable', 'eol'].includes(r.status)) continue;
@@ -567,7 +571,7 @@ export function buildFixPlan(report, { platform = process.platform, arch = proce
     const bin = shellQuote(r.path);
     lines.push('(', ...verifiedDownload(v, target),
       `mkdir -p ${shellQuote(backups)}`,
-      `cp -p ${bin} ${shellQuote(join(backups, basename(r.path) + '-' + r.version + '-' + r.path.replace(/[^A-Za-z0-9]+/g, '_')))}`,
+      `cp -p ${bin} ${shellQuote(posix.join(backups, posix.basename(r.path) + '-' + r.version + '-' + r.path.replace(/[^A-Za-z0-9]+/g, '_')))}`,
       `install -m 0755 ${shellQuote(tree + '/bin/node')} ${bin}`,
       `${bin} -v`,
       ')');
@@ -653,8 +657,8 @@ export function formatRuntimeReport(report) {
 export async function runtimeCommand(args = [], options = {}) {
   const report = await checkRuntimes({ ...options, noCache: args.includes('--no-cache'), vercel: args.includes('--no-vercel') ? false : options.vercel });
   const out = options.log || console.log;
-  if (args.includes('--json')) out(JSON.stringify(args.includes('--fix-plan') ? { ...report, fixPlan: buildFixPlan(report) } : report));
-  else if (args.includes('--fix-plan')) out(buildFixPlan(report));
+  if (args.includes('--json')) out(JSON.stringify(args.includes('--fix-plan') ? { ...report, fixPlan: buildFixPlan(report, options) } : report));
+  else if (args.includes('--fix-plan')) out(buildFixPlan(report, options));
   else out(formatRuntimeReport(report));
   return report.exitCode;
 }

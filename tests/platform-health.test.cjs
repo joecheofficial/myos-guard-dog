@@ -49,6 +49,7 @@ test('an empty nightly scan is incomplete and leaves an honest receipt', () => {
   const receipt = JSON.parse(fs.readFileSync(path.join(home, 'data', 'last-nightly.json')));
   assert.equal(receipt.status, 'incomplete');
   assert.equal(receipt.dependencyCount, 0);
+  assert.equal(receipt.runtime, undefined);
 });
 
 test('runtime advisories decide the nightly verdict only from the injected check, not the host Node', async () => {
